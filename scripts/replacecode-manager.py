@@ -15,6 +15,21 @@ def is_valid_subject_code(s):
     return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
 
 
+def _find_hinh_thuc_idx(row):
+    """
+    Tìm vị trí cột Hình thức trong row bằng cách dò ô chứa
+    'tương đương' hoặc 'thay thế'. Mặc định trả về 4 nếu không tìm thấy.
+
+    Lý do cần hàm này: cell curriculumcode nhiều dòng đôi khi bị
+    pdfplumber tách thành nhiều cell → các cột sau bị lệch sang phải.
+    """
+    for i in range(3, len(row)):
+        val = str(row[i]).lower().strip() if row[i] else ""
+        if "tương đương" in val or "thay thế" in val:
+            return i
+    return 4  # fallback mặc định
+
+
 def extract_from_pdf(pdf_source, so_qd="Unknown"):
     """
     Trích xuất dữ liệu môn tương đương từ PDF.
@@ -62,19 +77,29 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 if any(kw in cell_1 for kw in ["Mã", "học phần", "triển khai"]):
                     continue
 
-                # ── Đọc đúng cột theo cấu trúc bảng PDF ──────────────────
-                # row[0] = TT
-                # row[1] = SubjectCode   (Các HP đã triển khai)
-                # row[2] = Replacecode   (Các HP mới / tương đương / thay thế)
-                # row[3] = curriculumcode (Ngành/Chuyên ngành)
-                # row[4] = Hình thức     (Tương đương / Thay thế)
-                # row[5] = Tình trạng    (Bổ sung / Cập nhật / ...)
-                # row[6] = Chú ý
-                subject_raw  = str(row[1]).strip() if row[1]                         else ""
-                replace_raw  = str(row[2]).strip() if len(row) > 2 and row[2]        else ""
-                curriculum   = str(row[3]).strip() if len(row) > 3 and row[3]        else ""
-                hinh_thuc    = str(row[4]).strip() if len(row) > 4 and row[4]        else ""
-                chu_y        = str(row[6]).strip() if len(row) > 6 and row[6]        else ""
+                # ── Đọc cột cố định (không bao giờ lệch) ─────────────────
+                subject_raw = str(row[1]).strip() if row[1] else ""
+                replace_raw = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+
+                if not subject_raw:
+                    continue
+
+                # ── Tìm động vị trí cột Hình thức ────────────────────────
+                # Cell curriculumcode nhiều dòng có thể bị tách thành nhiều
+                # cell → dò ô chứa "Tương đương"/"Thay thế" thay vì dùng index cố định
+                ht_idx = _find_hinh_thuc_idx(row)
+
+                # curriculum = gộp tất cả cell từ row[3] đến trước ht_idx
+                curriculum_parts = [
+                    str(row[i]).strip()
+                    for i in range(3, ht_idx)
+                    if row[i] and str(row[i]).strip()
+                ]
+                curriculum = ", ".join(curriculum_parts)
+
+                hinh_thuc  = str(row[ht_idx]).strip()                                    if len(row) > ht_idx     else ""
+                chu_y      = str(row[ht_idx + 2]).strip()                                \
+                             if len(row) > ht_idx + 2 and row[ht_idx + 2] else ""
 
                 if not subject_raw:
                     continue
@@ -212,4 +237,3 @@ if __name__ == "__main__":
         print(f"\n⚠️  Các dòng bị bỏ qua:")
         for s in all_skipped:
             print(f"   Trang {s['page']}: {s['SubjectCode']} → \"{s['Replacecode_raw']}\"")
-
