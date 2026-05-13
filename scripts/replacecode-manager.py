@@ -5,6 +5,8 @@ import io
 import os
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def is_valid_subject_code(s):
     """
     Kiểm tra mã môn hợp lệ.
@@ -15,28 +17,44 @@ def is_valid_subject_code(s):
     return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
 
 
+def _normalize(s):
+    """
+    Chuẩn hóa chuỗi: lower + strip + thay newline bằng space.
+    Dùng để so sánh nội dung cell bất kể PDF có xuống dòng hay không.
+    VD: "Thay\nthe" -> "thay the" -> match duoc "thay the"
+    """
+    if s is None:
+        return ""
+    return str(s).lower().strip().replace('\n', ' ')
+
+
 def _find_hinh_thuc_idx(row):
     """
-    Tìm vị trí cột Hình thức trong row bằng cách dò ô chứa
-    'tương đương' hoặc 'thay thế'. Mặc định trả về 4 nếu không tìm thấy.
+    Tim vi tri cot Hinh thuc trong row bang cach do o chua
+    'tuong duong' hoac 'thay the'. Mac dinh tra ve 4 neu khong tim thay.
 
-    Lý do cần hàm này: cell curriculumcode nhiều dòng đôi khi bị
-    pdfplumber tách thành nhiều cell → các cột sau bị lệch sang phải.
+    Ly do can ham nay:
+    1. Cell curriculumcode dai bi pdfplumber tach thanh nhieu cell
+       -> cac cot sau lech sang phai.
+    2. Cell "Thay the" doi khi chua ky tu xuong dong "Thay\nthe"
+       -> can chuan hoa truoc khi so sanh.
     """
     for i in range(3, len(row)):
-        val = str(row[i]).lower().strip() if row[i] else ""
-        if "tương đương" in val or "thay thế" in val:
+        val = _normalize(row[i])
+        if "tuong duong" in val or "thay the" in val or "tương đương" in val or "thay thế" in val:
             return i
-    return 4  # fallback mặc định
+    return 4  # fallback mac dinh
 
+
+# ── Ham chinh ─────────────────────────────────────────────────────────────────
 
 def extract_from_pdf(pdf_source, so_qd="Unknown"):
     """
-    Trích xuất dữ liệu môn tương đương từ PDF.
+    Trich xuat du lieu mon tuong duong tu PDF.
 
     Args:
-        pdf_source : đường dẫn file (str) hoặc bytes / BytesIO (từ Streamlit upload)
-        so_qd      : số quyết định, tự động lấy từ tên file nếu pdf_source là str
+        pdf_source : duong dan file (str) hoac bytes / BytesIO (tu Streamlit upload)
+        so_qd      : so quyet dinh, tu dong lay tu ten file neu pdf_source la str
 
     Returns:
         (data_rows, skipped_rows)
@@ -44,16 +62,16 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
     data_rows    = []
     skipped_rows = []
 
-    # Xác định nguồn mở
+    # Xac dinh nguon mo
     if isinstance(pdf_source, str):
-        file_name     = os.path.basename(pdf_source)
-        match         = re.search(r'\d+', file_name)
-        so_qd         = match.group() if match else so_qd
-        open_target   = pdf_source
+        file_name   = os.path.basename(pdf_source)
+        match       = re.search(r'\d+', file_name)
+        so_qd       = match.group() if match else so_qd
+        open_target = pdf_source
     elif isinstance(pdf_source, bytes):
-        open_target   = io.BytesIO(pdf_source)
+        open_target = io.BytesIO(pdf_source)
     else:
-        open_target   = pdf_source  # BytesIO đã sẵn sàng
+        open_target = pdf_source
 
     with pdfplumber.open(open_target) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
@@ -71,40 +89,40 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 cell_0 = str(row[0]).strip() if row[0] else ""
                 cell_1 = str(row[1]).strip() if row[1] else ""
 
-                # Bỏ qua dòng tiêu đề
+                # Bo qua dong tieu de
                 if any(kw in cell_0 for kw in ["TT", "STT"]):
                     continue
-                if any(kw in cell_1 for kw in ["Mã", "học phần", "triển khai"]):
+                if any(kw in cell_1 for kw in ["M\u00e3", "h\u1ecdc ph\u1ea7n", "tri\u1ec3n khai"]):
                     continue
 
-                # ── Đọc cột cố định (không bao giờ lệch) ─────────────────
+                # Cot co dinh
                 subject_raw = str(row[1]).strip() if row[1] else ""
                 replace_raw = str(row[2]).strip() if len(row) > 2 and row[2] else ""
 
                 if not subject_raw:
                     continue
 
-                # ── Tìm động vị trí cột Hình thức ────────────────────────
-                # Cell curriculumcode nhiều dòng có thể bị tách thành nhiều
-                # cell → dò ô chứa "Tương đương"/"Thay thế" thay vì dùng index cố định
+                # Tim dong vi tri cot Hinh thuc
                 ht_idx = _find_hinh_thuc_idx(row)
 
-                # curriculum = gộp tất cả cell từ row[3] đến trước ht_idx
-                curriculum_parts = [
-                    str(row[i]).strip()
-                    for i in range(3, ht_idx)
-                    if row[i] and str(row[i]).strip()
-                ]
+                # curriculum: gop tat ca cell tu row[3] den truoc ht_idx
+                # Chuan hoa: thay \n bang space trong tung part
+                curriculum_parts = []
+                for i in range(3, ht_idx):
+                    if row[i] and str(row[i]).strip():
+                        part = str(row[i]).strip().replace('\n', ' ')
+                        curriculum_parts.append(part)
                 curriculum = ", ".join(curriculum_parts)
 
-                hinh_thuc  = str(row[ht_idx]).strip()                                    if len(row) > ht_idx     else ""
-                chu_y      = str(row[ht_idx + 2]).strip()                                \
-                             if len(row) > ht_idx + 2 and row[ht_idx + 2] else ""
+                # hinh_thuc: chuan hoa (lower + replace \n -> space)
+                hinh_thuc = _normalize(row[ht_idx]) if len(row) > ht_idx else ""
 
-                if not subject_raw:
-                    continue
+                # chu_y: o ht_idx + 2
+                chu_y = ""
+                if len(row) > ht_idx + 2 and row[ht_idx + 2]:
+                    chu_y = str(row[ht_idx + 2]).strip().replace('\n', ' ')
 
-                # Bỏ qua nếu Replacecode là mô tả văn bản (không phải mã môn)
+                # Bo qua neu Replacecode la mo ta van ban (khong phai ma mon)
                 first_code = replace_raw.split(',')[0].split('/')[0].strip()
                 if not replace_raw or not is_valid_subject_code(first_code):
                     if subject_raw and replace_raw:
@@ -112,19 +130,19 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                             "page"           : page_num,
                             "SubjectCode"    : subject_raw,
                             "Replacecode_raw": replace_raw,
-                            "ly_do"          : "Replacecode không phải mã môn hợp lệ"
+                            "ly_do"          : "Replacecode khong phai ma mon hop le"
                         })
                     continue
 
-                # ── Logic equivalent / replace ────────────────────────────
-                # "Tương đương" → 2 chiều : replace=TRUE, equivalent=TRUE
-                # "Thay thế"   → 1 chiều : replace=TRUE, equivalent=FALSE
-                equivalent = "TRUE" if "tương đương" in hinh_thuc.lower() else "FALSE"
+                # Logic equivalent / replace
+                # "Tuong duong" -> 2 chieu : replace=TRUE, equivalent=TRUE
+                # "Thay the"   -> 1 chieu : replace=TRUE, equivalent=FALSE
+                equivalent = "TRUE" if ("tương đương" in hinh_thuc or "tuong duong" in hinh_thuc) else "FALSE"
 
                 # Note = "{so_qd} {chu_y}"
                 note = f"{so_qd} {chu_y}".strip()
 
-                # Xử lý nhiều SubjectCode trong 1 ô: "LAB101, PRU211m, PRU212"
+                # Xu ly nhieu SubjectCode trong 1 o: "LAB101, PRU211m, PRU212"
                 for sc in re.split(r'[,/\n]+', subject_raw):
                     sc = sc.strip()
                     if sc and is_valid_subject_code(sc):
@@ -144,18 +162,18 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
 def merge_database(existing_df, new_rows):
     """
-    Gộp dữ liệu QĐ mới vào database hiện có.
+    Gop du lieu QD moi vao database hien co.
 
     Logic:
-        - Cặp (SubjectCode, Replacecode) đã có + có trong QĐ mới
-          → cập nhật no / note / curriculumcode, giữ "applied"
-        - Cặp đã có + KHÔNG có trong QĐ mới
-          → đánh dấu "expired"
-        - Cặp hoàn toàn mới
-          → thêm mới với "applied"
+        - Cap (SubjectCode, Replacecode) da co + co trong QD moi
+          -> cap nhat no / note / curriculumcode, giu "applied"
+        - Cap da co + KHONG co trong QD moi
+          -> danh dau "expired"
+        - Cap hoan toan moi
+          -> them moi voi "applied"
 
     Returns:
-        DataFrame đã cập nhật, cột chuẩn 8 trường
+        DataFrame da cap nhat, cot chuan 8 truong
     """
     COLS = ["SubjectCode", "Replacecode", "curriculumcode",
             "replace", "equivalent", "replace_status", "note", "no"]
@@ -169,8 +187,8 @@ def merge_database(existing_df, new_rows):
     if existing_df is None or existing_df.empty:
         return new_df[COLS].reset_index(drop=True)
 
-    existing_df = existing_df.copy()
-    updated_rows  = []
+    existing_df    = existing_df.copy()
+    updated_rows   = []
     existing_pairs = set()
 
     for _, row in existing_df.iterrows():
@@ -180,21 +198,19 @@ def merge_database(existing_df, new_rows):
         existing_pairs.add(pair)
 
         if pair in new_pairs:
-            # Cập nhật theo QĐ mới
-            matched              = new_df[(new_df["SubjectCode"] == sc) & (new_df["Replacecode"] == rc)].iloc[0]
-            row                  = row.copy()
-            row["no"]            = matched["no"]
-            row["note"]          = matched["note"]
-            row["curriculumcode"]= matched["curriculumcode"]
-            row["replace_status"]= "applied"
+            matched               = new_df[(new_df["SubjectCode"] == sc) & (new_df["Replacecode"] == rc)].iloc[0]
+            row                   = row.copy()
+            row["no"]             = matched["no"]
+            row["note"]           = matched["note"]
+            row["curriculumcode"] = matched["curriculumcode"]
+            row["replace_status"] = "applied"
         else:
-            # Không có trong QĐ mới → hết hiệu lực
-            row                  = row.copy()
-            row["replace_status"]= "expired"
+            row                   = row.copy()
+            row["replace_status"] = "expired"
 
         updated_rows.append(row)
 
-    # Thêm cặp hoàn toàn mới
+    # Them cap hoan toan moi
     for _, new_row in new_df.iterrows():
         pair = (str(new_row["SubjectCode"]).strip(), str(new_row["Replacecode"]).strip())
         if pair not in existing_pairs:
@@ -204,7 +220,7 @@ def merge_database(existing_df, new_rows):
     return result_df
 
 
-# ── Chạy độc lập (không dùng Streamlit) ──────────────────────────────────────
+# ── Chay doc lap (khong dung Streamlit) ──────────────────────────────────────
 if __name__ == "__main__":
     INPUT_DIR   = "input/"
     OUTPUT_FILE = "output/Database_Tong_Hop.xlsx"
@@ -215,25 +231,25 @@ if __name__ == "__main__":
     pdf_files = [f for f in os.listdir(INPUT_DIR) if f.endswith(".pdf")]
 
     if not pdf_files:
-        print("❌ Không tìm thấy file PDF nào trong input/")
+        print("Khong tim thay file PDF nao trong input/")
     else:
         for file in pdf_files:
             path = os.path.join(INPUT_DIR, file)
-            print(f"\n📄 Đang xử lý: {file}")
+            print(f"\nDang xu ly: {file}")
             rows, skipped = extract_from_pdf(path)
             all_new_data.extend(rows)
             all_skipped.extend(skipped)
-            print(f"   ✅ Trích xuất: {len(rows)} dòng")
+            print(f"   Trich xuat: {len(rows)} dong")
             if skipped:
-                print(f"   ⚠️  Bỏ qua   : {len(skipped)} dòng")
+                print(f"   Bo qua   : {len(skipped)} dong")
 
     if all_new_data:
         existing = pd.read_excel(OUTPUT_FILE) if os.path.exists(OUTPUT_FILE) else None
         final    = merge_database(existing, all_new_data)
         final.to_excel(OUTPUT_FILE, index=False)
-        print(f"\n✅ Đã lưu {len(final)} dòng → {OUTPUT_FILE}")
+        print(f"\nDa luu {len(final)} dong vao {OUTPUT_FILE}")
 
     if all_skipped:
-        print(f"\n⚠️  Các dòng bị bỏ qua:")
+        print("\nCac dong bi bo qua:")
         for s in all_skipped:
-            print(f"   Trang {s['page']}: {s['SubjectCode']} → \"{s['Replacecode_raw']}\"")
+            print(f"   Trang {s['page']}: {s['SubjectCode']} -> \"{s['Replacecode_raw']}\"")
