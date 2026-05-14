@@ -65,51 +65,60 @@ st.markdown(f"""
         --shadow: {T["shadow"]};
     }}
 
-    /* ---- Hide default Streamlit chrome ---- */
-    /* Ẩn menu hamburger, footer, deploy button */
-#MainMenu, footer, .stDeployButton,
-div[data-testid="stDecoration"] {
-    display: none !important;
-}
+    /* ---- Ẩn menu, footer, deploy – KHÔNG ẩn header ---- */
+    #MainMenu, footer, .stDeployButton,
+    div[data-testid="stDecoration"] {{
+        display: none !important;
+    }}
 
-/* Ẩn nội dung header nhưng GIỮ nút toggle sidebar */
-header[data-testid="stHeader"] {
-    background: transparent !important;
-    border: none !important;
-    height: auto !important;
-}
+    /* ---- Header trong suốt, giữ nút toggle ---- */
+    header[data-testid="stHeader"] {{
+        background: transparent !important;
+        border: none !important;
+        height: auto !important;
+    }}
 
-/* Đảm bảo nút toggle sidebar luôn hiển thị */
-button[data-testid="stSidebarCollapseButton"],
-button[data-testid="stSidebarCollapsedControl"],
-section[data-testid="stSidebar"] button[kind="header"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    z-index: 999999 !important;
-    position: fixed !important;
-    top: 12px !important;
-    left: 12px !important;
-    background: var(--card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 8px !important;
-    width: 36px !important;
-    height: 36px !important;
-    align-items: center !important;
-    justify-content: center !important;
-    cursor: pointer !important;
-    box-shadow: var(--shadow) !important;
-}
+    /* ---- Nút toggle sidebar luôn hiển thị ---- */
+    button[data-testid="stSidebarCollapseButton"],
+    button[data-testid="stSidebarCollapsedControl"],
+    section[data-testid="stSidebar"] button[kind="header"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 999999 !important;
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
+        background: {T["card"]} !important;
+        border: 1px solid {T["border"]} !important;
+        border-radius: 8px !important;
+        width: 36px !important;
+        height: 36px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        cursor: pointer !important;
+        box-shadow: {T["shadow"]} !important;
+    }}
 
-/* Icon bên trong nút toggle */
-button[data-testid="stSidebarCollapseButton"] svg,
-button[data-testid="stSidebarCollapsedControl"] svg {
-    fill: var(--accent) !important;
-    stroke: var(--accent) !important;
-    width: 18px !important;
-    height: 18px !important;
-}
+    /* Khi sidebar đang mở, dời nút sang phải sidebar */
+    section[data-testid="stSidebar"][aria-expanded="true"] ~ div button[data-testid="stSidebarCollapseButton"] {{
+        left: auto !important;
+    }}
 
+    /* Khi sidebar đang đóng, nút nằm góc trái */
+    button[data-testid="stSidebarCollapsedControl"] {{
+        left: 12px !important;
+        top: 12px !important;
+    }}
+
+    /* Icon trong nút toggle */
+    button[data-testid="stSidebarCollapseButton"] svg,
+    button[data-testid="stSidebarCollapsedControl"] svg {{
+        fill: {T["accent"]} !important;
+        stroke: {T["accent"]} !important;
+        width: 18px !important;
+        height: 18px !important;
+    }}
 
     /* ---- Global ---- */
     html, body, [data-testid="stAppViewContainer"],
@@ -136,6 +145,12 @@ button[data-testid="stSidebarCollapsedControl"] svg {
         margin-bottom: 0.3rem;
     }}
 
+    /* ---- Sidebar nav links ẩn ---- */
+    section[data-testid="stSidebar"] ul[data-testid="stSidebarNavItems"],
+    section[data-testid="stSidebar"] nav[data-testid="stSidebarNav"] {{
+        display: none !important;
+    }}
+
     /* ---- Buttons ---- */
     .stButton > button {{
         background-color: var(--accent) !important;
@@ -150,10 +165,21 @@ button[data-testid="stSidebarCollapsedControl"] svg {
         background-color: var(--accent-hover) !important;
     }}
 
-    /* ---- iframe container ---- */
+    /* ---- iframe ---- */
     iframe {{
         border: 1px solid var(--border) !important;
         border-radius: 12px !important;
+    }}
+
+    /* ---- Scrollbar ---- */
+    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+    ::-webkit-scrollbar-track {{ background: transparent; }}
+    ::-webkit-scrollbar-thumb {{
+        background: {T["border"]};
+        border-radius: 3px;
+    }}
+    ::-webkit-scrollbar-thumb:hover {{
+        background: {T["muted"]};
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -167,7 +193,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="
         display:flex; align-items:center; gap:12px;
-        padding:8px 0 16px 0; border-bottom:1px solid var(--border);
+        padding:8px 0 16px 0; border-bottom:1px solid {T['border']};
         margin-bottom:20px;">
         <div style="
             width:40px; height:40px; border-radius:12px;
@@ -214,7 +240,7 @@ with st.sidebar:
     # ---------- Security info ----------
     st.markdown(f"""
     <div style="
-        background: var(--accent-light);
+        background: {T['accent_light']};
         border:1px solid {T['accent']}33;
         border-radius:10px; padding:14px; margin-bottom:20px;">
         <div style="font-size:13px; font-weight:700; color:{T['accent']}; margin-bottom:6px;">
@@ -290,8 +316,8 @@ with st.sidebar:
         Files đầu vào
     </div>
     <div style="
-        background: var(--card2);
-        border:1px solid var(--border);
+        background: {T['card2']};
+        border:1px solid {T['border']};
         border-radius:10px; padding:14px;">
         <div style="font-size:12px; color:{T['muted']}; line-height:2;">
             📋 <strong>cancheck</strong> – DS ứng viên tốt nghiệp<br>
@@ -308,7 +334,7 @@ with st.sidebar:
     <div style="
         margin-top:40px;
         padding-top:16px;
-        border-top:1px solid var(--border);
+        border-top:1px solid {T['border']};
         text-align:center;">
         <div style="font-size:11px; color:{T['muted']};">
             © 2026 <strong style="color:{T['accent']}">YenLT31</strong>
@@ -320,7 +346,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
 # ============================================================
-#  MAIN CONTENT – Load original HTML (100% unchanged)
+#  MAIN – Load HTML gốc (100% không thay đổi)
 # ============================================================
 html_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', 'scripts', 'graduation-reviewer.html')
