@@ -176,7 +176,7 @@ st.markdown(f"""
                 text-transform:uppercase;margin-bottom:12px;font-family:'Plus Jakarta Sans',sans-serif">
         🔧 FPT QA Tools
     </div>
-    <h1 style="font-size:28px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
+    <h1 style="font-size:22px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
                margin:0 0 12px;line-height:1.2;font-family:'Plus Jakarta Sans',sans-serif">
         Hệ sinh thái công cụ<br>
         <span style="color:{T['accent']}">Đảm bảo chất lượng — FE</span>
