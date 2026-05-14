@@ -170,7 +170,7 @@ with st.sidebar:
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style="background:linear-gradient(160deg,{T['card']} 0%,{T['card2']} 55%,{T['bg']} 100%);
-            border-bottom:1px solid {T['border']};padding:24px 0 18px;
+            border-bottom:1px solid {T['border']};padding:20px 0 18px;
             margin:-1rem -1rem 0;text-align:center">
     <div style="font-size:12px;color:{T['accent']};font-weight:700;letter-spacing:1.2px;
                 text-transform:uppercase;margin-bottom:12px;font-family:'Plus Jakarta Sans',sans-serif">
