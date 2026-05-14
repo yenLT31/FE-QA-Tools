@@ -4,7 +4,7 @@ import io, base64, re, requests, os
 import pdfplumber
 import importlib.util
 
-# ── Load logic module ─────────────────────────────────────────────────────────
+# ── Load logic ────────────────────────────────────────────────────────────────
 def load_script_module():
     path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts", "replacecode-manager.py"))
     spec = importlib.util.spec_from_file_location("rm", path)
@@ -13,7 +13,7 @@ def load_script_module():
     return mod
 
 try:
-    rm = load_script_module()
+    rm               = load_script_module()
     extract_from_pdf = rm.extract_from_pdf
     merge_database   = rm.merge_database
 except Exception as e:
@@ -22,24 +22,22 @@ except Exception as e:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def to_excel_bytes(df):
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False)
-    buf.seek(0)
-    return buf.getvalue()
+    buf = io.BytesIO(); df.to_excel(buf, index=False); buf.seek(0); return buf.getvalue()
 
 def fetch_db_from_github(token, repo):
-    url  = f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx"
-    resp = requests.get(url, headers={"Authorization": f"token {token}"})
+    resp = requests.get(f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx",
+                        headers={"Authorization": f"token {token}"})
     if resp.status_code == 200:
-        data = resp.json()
-        return pd.read_excel(io.BytesIO(base64.b64decode(data["content"]))), data["sha"]
+        d = resp.json()
+        return pd.read_excel(io.BytesIO(base64.b64decode(d["content"]))), d["sha"]
     return None, None
 
 def commit_to_github(token, repo, excel_bytes, so_qd, sha=None):
-    url     = f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx"
-    payload = {"message": f"chore: update database QD {so_qd}", "content": base64.b64encode(excel_bytes).decode()}
+    payload = {"message": f"chore: update database QD {so_qd}",
+               "content": base64.b64encode(excel_bytes).decode()}
     if sha: payload["sha"] = sha
-    resp = requests.put(url, json=payload, headers={"Authorization": f"token {token}", "Content-Type": "application/json"})
+    resp = requests.put(f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx",
+                        json=payload, headers={"Authorization": f"token {token}", "Content-Type": "application/json"})
     return resp.status_code in [200, 201], resp.json().get("message", "")
 
 def read_raw_rows(pdf_bytes, max_rows=80):
@@ -57,167 +55,173 @@ def read_raw_rows(pdf_bytes, max_rows=80):
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
-D = dict(
-    bg="#0D1117", surface="#161B22", surface2="#21262D", border="#30363D",
-    text="#E6EDF3", muted="#7D8590", accent="#00D4AA", accent2="#007A65",
-    green="#3FB950", red="#F85149", blue="#58A6FF",
-    gbg="#1A3A2A", gtxt="#3FB950", rbg="#3A1A1A", rtxt="#F85149",
+DARK = dict(
+    bg="#080D18", card="#0F1628", card2="#162040", border="#1E2D4A",
+    text="#E8EDF5", muted="#8892A4", accent="#00D4AA", accent_dim="#00A882",
+    green="#22C55E", red="#EF4444", blue="#60A5FA",
+    gbg="#052E16", gtxt="#22C55E", rbg="#2D0A0A", rtxt="#EF4444",
+    badge_bg="#1E2D4A", badge_txt="#8892A4",
 )
-L = dict(
-    bg="#F6F8FA", surface="#FFFFFF", surface2="#F0F2F5", border="#D0D7DE",
-    text="#1F2328", muted="#636C76", accent="#0A9E7F", accent2="#065F4A",
-    green="#1A7F37", red="#CF222E", blue="#0969DA",
-    gbg="#DAFBE1", gtxt="#116329", rbg="#FFEBE9", rtxt="#82071E",
+LIGHT = dict(
+    bg="#F0F4F8", card="#FFFFFF", card2="#F7F9FC", border="#E2E8F0",
+    text="#1A2540", muted="#64748B", accent="#0A9E7F", accent_dim="#077A62",
+    green="#16A34A", red="#DC2626", blue="#2563EB",
+    gbg="#DCFCE7", gtxt="#15803D", rbg="#FEE2E2", rtxt="#991B1B",
+    badge_bg="#E2E8F0", badge_txt="#475569",
 )
-T = D if st.session_state.theme == "dark" else L
+T = DARK if st.session_state.theme == "dark" else LIGHT
 
 # ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="ReplaceCode Manager", page_icon="📚", layout="wide")
+st.set_page_config(page_title="ReplaceCode Manager", page_icon="📋", layout="wide")
 
-# ── CSS injection (tách riêng để tránh render thành text) ─────────────────────
-st.markdown('<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">', unsafe_allow_html=True)
+# ── Font ──────────────────────────────────────────────────────────────────────
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True
+)
 
-css_vars = f"""
-    --bg: {T['bg']}; --surface: {T['surface']}; --surface2: {T['surface2']};
-    --border: {T['border']}; --text: {T['text']}; --muted: {T['muted']};
-    --accent: {T['accent']}; --accent2: {T['accent2']};
-    --green: {T['green']}; --red: {T['red']}; --blue: {T['blue']};
-    --gbg: {T['gbg']}; --gtxt: {T['gtxt']}; --rbg: {T['rbg']}; --rtxt: {T['rtxt']};
-"""
+# ── CSS vars ──────────────────────────────────────────────────────────────────
+st.markdown(f"""<style>:root{{
+--bg:{T['bg']};--card:{T['card']};--card2:{T['card2']};--border:{T['border']};
+--text:{T['text']};--muted:{T['muted']};--accent:{T['accent']};--accent-dim:{T['accent_dim']};
+--green:{T['green']};--red:{T['red']};--blue:{T['blue']};
+--gbg:{T['gbg']};--gtxt:{T['gtxt']};--rbg:{T['rbg']};--rtxt:{T['rtxt']};
+--badge-bg:{T['badge_bg']};--badge-txt:{T['badge_txt']};
+}}</style>""", unsafe_allow_html=True)
 
-st.markdown(f"<style>:root{{{css_vars}}}</style>", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-* { box-sizing: border-box; }
-body, .stApp { background-color: var(--bg) !important; font-family: 'Outfit', sans-serif !important; }
-header[data-testid="stHeader"] { display: none !important; }
-.block-container { padding-top: 1.5rem !important; max-width: 1380px !important; }
-[data-testid="stSidebar"] { background: var(--surface) !important; border-right: 1px solid var(--border) !important; }
-[data-testid="stSidebar"] * { color: var(--text) !important; font-family: 'Outfit', sans-serif !important; }
-p, span, div, label, h1, h2, h3, h4 { color: var(--text) !important; font-family: 'Outfit', sans-serif !important; }
-.stTextInput input {
-    background: var(--surface2) !important; border: 1px solid var(--border) !important;
-    border-radius: 8px !important; color: var(--text) !important;
-    font-family: 'Outfit', sans-serif !important; font-size: 14px !important; padding: 10px 14px !important;
-}
-.stTextInput input:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent) !important; }
-[data-testid="stFileUploader"] {
-    background: var(--surface2) !important; border: 1.5px dashed var(--border) !important;
-    border-radius: 12px !important; padding: 4px !important; transition: border-color .2s;
-}
-[data-testid="stFileUploader"]:hover { border-color: var(--accent) !important; }
-.stButton > button {
-    background: var(--accent) !important; color: #0D1117 !important;
-    font-family: 'Outfit', sans-serif !important; font-weight: 600 !important;
-    font-size: 14px !important; border: none !important; border-radius: 8px !important;
-    padding: 10px 22px !important; transition: all .2s ease !important; letter-spacing: .3px;
-}
-.stButton > button:hover { background: var(--accent2) !important; transform: translateY(-1px) !important; box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 35%, transparent) !important; }
-.stButton > button:disabled { background: var(--surface2) !important; color: var(--muted) !important; transform: none !important; box-shadow: none !important; }
-[data-testid="stDownloadButton"] > button {
-    background: var(--surface2) !important; color: var(--text) !important;
-    border: 1px solid var(--border) !important; font-family: 'Outfit', sans-serif !important;
-    font-weight: 500 !important; border-radius: 8px !important; padding: 10px 22px !important; transition: all .2s;
-}
-[data-testid="stDownloadButton"] > button:hover { border-color: var(--accent) !important; color: var(--accent) !important; }
-[data-testid="stMetric"] { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; padding: 18px 22px !important; }
-[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: .8px; }
-[data-testid="stMetricValue"] { color: var(--text) !important; font-size: 28px !important; font-weight: 700 !important; }
-[data-testid="stSelectbox"] > div > div { background: var(--surface2) !important; border: 1px solid var(--border) !important; border-radius: 8px !important; }
-[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: 12px !important; overflow: hidden !important; }
-.stSuccess, .element-container .stAlert[data-baseweb="notification"][kind="positive"] { background: var(--gbg) !important; border-left: 3px solid var(--green) !important; border-radius: 8px !important; }
-.stError   { background: var(--rbg) !important; border-left: 3px solid var(--red) !important; border-radius: 8px !important; }
-.stInfo    { background: var(--surface2) !important; border-left: 3px solid var(--blue) !important; border-radius: 8px !important; }
-.stWarning { background: var(--surface2) !important; border-left: 3px solid #D29922 !important; border-radius: 8px !important; }
-[data-testid="stExpander"] { background: var(--surface) !important; border: 1px solid var(--border) !important; border-radius: 10px !important; }
-.stCheckbox label { color: var(--text) !important; font-size: 13px !important; }
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: var(--surface); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-</style>
-""", unsafe_allow_html=True)
+# ── CSS rules ─────────────────────────────────────────────────────────────────
+st.markdown("""<style>
+*{box-sizing:border-box}
+body,.stApp{background:var(--bg)!important;font-family:'Plus Jakarta Sans',sans-serif!important}
+header[data-testid="stHeader"]{display:none!important}
+.block-container{padding-top:0!important;max-width:1300px!important}
+[data-testid="stSidebar"]{background:var(--card)!important;border-right:1px solid var(--border)!important}
+[data-testid="stSidebar"] *{color:var(--text)!important;font-family:'Plus Jakarta Sans',sans-serif!important}
+p,span,div,label,h1,h2,h3,h4,li{color:var(--text)!important;font-family:'Plus Jakarta Sans',sans-serif!important}
+.stTextInput input{background:var(--card2)!important;border:1px solid var(--border)!important;border-radius:10px!important;color:var(--text)!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-size:14px!important;padding:11px 14px!important;transition:border-color .2s,box-shadow .2s}
+.stTextInput input:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px rgba(0,212,170,.15)!important}
+[data-testid="stFileUploader"]{background:var(--card2)!important;border:1.5px dashed var(--border)!important;border-radius:14px!important;transition:border-color .2s,background .2s!important}
+[data-testid="stFileUploader"]:hover{border-color:var(--accent)!important;background:rgba(0,212,170,.04)!important}
+[data-testid="stFileUploader"] *{color:var(--muted)!important}
+.stButton>button{background:var(--accent)!important;color:#080D18!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-weight:700!important;font-size:14px!important;border:none!important;border-radius:10px!important;padding:11px 24px!important;transition:all .2s!important;letter-spacing:.2px}
+.stButton>button:hover{background:var(--accent-dim)!important;transform:translateY(-1px)!important;box-shadow:0 6px 20px rgba(0,212,170,.25)!important}
+.stButton>button:disabled{background:var(--card2)!important;color:var(--muted)!important;transform:none!important;box-shadow:none!important}
+[data-testid="stDownloadButton"]>button{background:var(--card2)!important;color:var(--text)!important;border:1px solid var(--border)!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-weight:600!important;border-radius:10px!important;padding:11px 24px!important;transition:all .2s}
+[data-testid="stDownloadButton"]>button:hover{border-color:var(--accent)!important;color:var(--accent)!important}
+[data-testid="stMetric"]{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:14px!important;padding:20px 22px!important}
+[data-testid="stMetricLabel"]{color:var(--muted)!important;font-size:11px!important;font-weight:600!important;text-transform:uppercase;letter-spacing:.9px}
+[data-testid="stMetricValue"]{color:var(--text)!important;font-size:30px!important;font-weight:800!important}
+[data-testid="stSelectbox"]>div>div{background:var(--card2)!important;border:1px solid var(--border)!important;border-radius:10px!important;color:var(--text)!important}
+[data-testid="stDataFrame"]{border:1px solid var(--border)!important;border-radius:14px!important;overflow:hidden!important}
+.stSuccess{background:var(--gbg)!important;border-left:3px solid var(--green)!important;border-radius:10px!important}
+.stError{background:var(--rbg)!important;border-left:3px solid var(--red)!important;border-radius:10px!important}
+.stInfo{background:var(--card2)!important;border-left:3px solid var(--blue)!important;border-radius:10px!important}
+.stWarning{background:var(--card2)!important;border-left:3px solid #D97706!important;border-radius:10px!important}
+[data-testid="stExpander"]{background:var(--card)!important;border:1px solid var(--border)!important;border-radius:12px!important}
+.stCheckbox label{color:var(--text)!important;font-size:13px!important;font-weight:500!important}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--card)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+</style>""", unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"""
-    <div style="padding:4px 0 20px;border-bottom:1px solid {T['border']};margin-bottom:20px">
+    <div style="padding:16px 0 22px;border-bottom:1px solid {T['border']};margin-bottom:22px">
         <div style="display:flex;align-items:center;gap:10px">
-            <span style="font-size:26px">📚</span>
+            <div style="background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});border-radius:10px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">📋</div>
             <div>
-                <div style="font-size:15px;font-weight:700;letter-spacing:-0.3px">ReplaceCode</div>
-                <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.8px;text-transform:uppercase">Manager</div>
+                <div style="font-size:15px;font-weight:800;color:{T['text']};letter-spacing:-.3px">ReplaceCode</div>
+                <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-top:1px">Manager</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     # Theme toggle
-    st.markdown(f'<p style="font-size:11px;color:{T["muted"]};font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">Giao diện</p>', unsafe_allow_html=True)
+    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:8px">Giao diện</p>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("☀ Sáng", use_container_width=True):
+        if st.button("☀ Sáng", use_container_width=True, key="btn_light"):
             st.session_state.theme = "light"; st.rerun()
     with c2:
-        if st.button("🌙 Tối", use_container_width=True):
+        if st.button("🌙 Tối", use_container_width=True, key="btn_dark"):
             st.session_state.theme = "dark"; st.rerun()
 
-    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:20px 0"></div>', unsafe_allow_html=True)
 
-    # GitHub
-    st.markdown(f'<p style="font-size:11px;color:{T["muted"]};font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px">GitHub</p>', unsafe_allow_html=True)
+    # GitHub status
+    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:10px">GitHub</p>', unsafe_allow_html=True)
     try:
         github_token = st.secrets["github"]["token"]
         github_repo  = st.secrets["github"].get("repo", "yenLT31/FE-QA-Tools")
-        st.markdown(f'<div style="background:{T["gbg"]};border:1px solid {T["green"]}44;border-radius:8px;padding:9px 13px;margin-bottom:10px"><span style="color:{T["green"]};font-size:13px;font-weight:600">✓ Token đã cấu hình</span></div>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="background:{T['gbg']};border:1px solid {T['green']}33;border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+            <span style="width:7px;height:7px;background:{T['green']};border-radius:50%;display:inline-block;flex-shrink:0"></span>
+            <span style="color:{T['green']};font-size:13px;font-weight:600">Token đã cấu hình</span>
+        </div>""", unsafe_allow_html=True)
     except Exception:
         github_token, github_repo = "", "yenLT31/FE-QA-Tools"
-        st.markdown(f'<div style="background:{T["rbg"]};border:1px solid {T["red"]}44;border-radius:8px;padding:9px 13px;margin-bottom:10px"><span style="color:{T["red"]};font-size:13px;font-weight:600">⚠ Chưa có token</span></div>', unsafe_allow_html=True)
-    st.markdown(f'<code style="font-size:11px;color:{T["muted"]}">{github_repo}</code>', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="background:{T['rbg']};border:1px solid {T['red']}33;border-radius:10px;padding:10px 14px;margin-bottom:10px">
+            <span style="color:{T['red']};font-size:13px;font-weight:600">⚠ Chưa có token</span>
+        </div>""", unsafe_allow_html=True)
 
-    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
-    st.markdown(f'<p style="font-size:11px;color:{T["muted"]};font-weight:600;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">Công cụ</p>', unsafe_allow_html=True)
+    st.markdown(f'<code style="font-size:11px;color:{T["muted"]};font-family:JetBrains Mono,monospace;background:{T["card2"]};padding:4px 8px;border-radius:6px;display:block">{github_repo}</code>', unsafe_allow_html=True)
+
+    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:20px 0"></div>', unsafe_allow_html=True)
+    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:8px">Công cụ</p>', unsafe_allow_html=True)
     debug_mode = st.checkbox("🔍 Debug pdfplumber", value=False)
 
-# ── Header ────────────────────────────────────────────────────────────────────
+# ── Page header ───────────────────────────────────────────────────────────────
 st.markdown(f"""
-<div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid {T['border']}">
-    <h1 style="font-size:28px;font-weight:700;letter-spacing:-0.6px;margin:0 0 6px">Quản lý môn tương đương</h1>
-    <p style="color:{T['muted']};font-size:14px;margin:0;font-weight:400">
-        Cập nhật danh sách môn thay thế / tương đương từ Quyết định PDF
-    </p>
+<div style="background:linear-gradient(180deg,{T['card']} 0%,transparent 100%);
+            padding:32px 32px 28px;margin:-1rem -1rem 0;border-bottom:1px solid {T['border']}">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <span style="color:{T['accent']};font-size:13px;font-weight:700;letter-spacing:.8px;text-transform:uppercase">ReplaceCode Manager</span>
+        <span style="background:{T['gbg']};color:{T['green']};font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;letter-spacing:.4px">• LIVE</span>
+    </div>
+    <h1 style="font-size:26px;font-weight:800;color:{T['text']};letter-spacing:-.6px;margin:0 0 6px">Quản lý môn tương đương</h1>
+    <p style="color:{T['muted']};font-size:14px;margin:0;font-weight:400">Cập nhật danh sách môn thay thế / tương đương từ Quyết định PDF</p>
 </div>
+<div style="height:28px"></div>
 """, unsafe_allow_html=True)
 
-# helper: section label
-def section_label(num, title, sub=""):
+# helper: step card label
+def step_label(num, title, sub=""):
     st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:12px;margin:24px 0 14px">
-        <div style="background:{T['accent']};color:#0D1117;font-size:11px;font-weight:700;
-                    border-radius:6px;padding:4px 9px;letter-spacing:.5px">{num}</div>
+    <div style="display:flex;align-items:center;gap:12px;margin:0 0 16px">
+        <div style="background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});color:#080D18;
+                    font-size:11px;font-weight:800;border-radius:8px;padding:5px 10px;letter-spacing:.5px;flex-shrink:0">{num}</div>
         <div>
-            <div style="font-size:17px;font-weight:600;letter-spacing:-.3px">{title}</div>
-            {"" if not sub else f'<div style="font-size:12px;color:{T["muted"]};margin-top:2px">{sub}</div>'}
+            <div style="font-size:16px;font-weight:700;color:{T['text']};letter-spacing:-.3px">{title}</div>
+            {"" if not sub else f'<div style="font-size:12px;color:{T["muted"]};margin-top:1px">{sub}</div>'}
         </div>
     </div>""", unsafe_allow_html=True)
 
+def card_wrap():
+    return f'background:{T["card"]};border:1px solid {T["border"]};border-radius:16px;padding:24px;margin-bottom:20px'
+
 # ── 01 Upload ─────────────────────────────────────────────────────────────────
-section_label("01", "Tải lên file", "Upload PDF Quyết định và database hiện có")
+st.markdown(f'<div style="{card_wrap()}">', unsafe_allow_html=True)
+step_label("01", "Tải lên file", "Upload PDF Quyết định và database hiện có")
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    st.markdown(f'<p style="font-size:12px;font-weight:600;color:{T["muted"]};text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">📄 File PDF Quyết định</p>', unsafe_allow_html=True)
-    uploaded_pdf = st.file_uploader("pdf", type=["pdf"], key="pdf_upload", label_visibility="collapsed")
+    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">📄 File PDF Quyết định</p>', unsafe_allow_html=True)
+    uploaded_pdf = st.file_uploader(" ", type=["pdf"], key="pdf_upload", label_visibility="hidden")
     so_qd_input  = st.text_input("Số Quyết định", placeholder="Tự detect từ tên file nếu để trống")
 
 with col2:
-    st.markdown(f'<p style="font-size:12px;font-weight:600;color:{T["muted"]};text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">📊 Database hiện có <span style="font-weight:400;font-size:10px">(tùy chọn)</span></p>', unsafe_allow_html=True)
-    uploaded_excel = st.file_uploader("xlsx", type=["xlsx"], key="excel_upload", label_visibility="collapsed")
+    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">📊 Database hiện có <span style="font-weight:400;opacity:.7">(tùy chọn)</span></p>', unsafe_allow_html=True)
+    uploaded_excel = st.file_uploader(" ", type=["xlsx"], key="excel_upload", label_visibility="hidden")
     if not uploaded_excel:
-        clr = T['green'] if github_token else "#D29922"
-        txt = "✓ Tự fetch từ GitHub" if github_token else "⚠ Sẽ tạo database mới"
-        st.markdown(f'<p style="color:{clr};font-size:13px;font-weight:500;margin-top:6px">{txt}</p>', unsafe_allow_html=True)
+        clr = T['green'] if github_token else "#D97706"
+        ico = "✓" if github_token else "⚠"
+        txt = "Tự fetch từ GitHub" if github_token else "Sẽ tạo database mới"
+        st.markdown(f'<div style="display:flex;align-items:center;gap:6px;margin-top:8px"><span style="width:6px;height:6px;background:{clr};border-radius:50%;display:inline-block"></span><span style="color:{clr};font-size:13px;font-weight:500">{txt}</span></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # Debug
 if debug_mode and uploaded_pdf:
@@ -225,10 +229,11 @@ if debug_mode and uploaded_pdf:
     rows = read_raw_rows(b)
     with st.expander(f"🔍 Raw pdfplumber — {len(rows)} rows"):
         for r in rows:
-            st.markdown(f'<code style="font-size:11px;color:{T["muted"]};font-family:JetBrains Mono,monospace">T{r["page"]} R{r["row"]}: {r["cells"]}</code>', unsafe_allow_html=True)
+            st.markdown(f'<code style="font-size:11px;color:{T["muted"]};font-family:JetBrains Mono,monospace;display:block;margin-bottom:3px">T{r["page"]} R{r["row"]}: {r["cells"]}</code>', unsafe_allow_html=True)
 
 # ── 02 Process ────────────────────────────────────────────────────────────────
-section_label("02", "Xử lý dữ liệu", "Trích xuất và merge với database hiện có")
+st.markdown(f'<div style="{card_wrap()}">', unsafe_allow_html=True)
+step_label("02", "Xử lý dữ liệu", "Trích xuất và merge với database hiện có")
 
 btn_process = st.button(
     "▶  Bắt đầu xử lý" if uploaded_pdf else "⬆  Upload PDF trước",
@@ -237,7 +242,11 @@ btn_process = st.button(
 
 if btn_process:
     with st.spinner("Đang xử lý..."):
-        so_qd = so_qd_input.strip() or (re.search(r'\d+', uploaded_pdf.name) or type('', (), {'group': lambda s: 'Unknown'})()).group()
+        so_qd = so_qd_input.strip()
+        if not so_qd:
+            m = re.search(r'\d+', uploaded_pdf.name)
+            so_qd = m.group() if m else "Unknown"
+
         pdf_bytes         = uploaded_pdf.read()
         new_rows, skipped = extract_from_pdf(pdf_bytes, so_qd=so_qd)
         existing_df, github_sha = None, None
@@ -248,7 +257,7 @@ if btn_process:
         elif github_token:
             existing_df, github_sha = fetch_db_from_github(github_token, github_repo)
             if existing_df is not None: st.info(f"Database từ GitHub: **{len(existing_df)} dòng**")
-            else: st.warning("Chưa có database trên GitHub — sẽ tạo mới")
+            else: st.warning("Chưa có database — sẽ tạo mới")
         else:
             st.warning("Không có database cũ — sẽ tạo mới từ QĐ này")
 
@@ -260,6 +269,7 @@ if btn_process:
         if skipped:
             with st.expander(f"⚠  {len(skipped)} dòng bị bỏ qua"):
                 st.dataframe(pd.DataFrame(skipped), use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ── 03 Results ────────────────────────────────────────────────────────────────
 if "final_df" in st.session_state:
@@ -269,7 +279,8 @@ if "final_df" in st.session_state:
     qd  = st.session_state["so_qd"]
     sha = st.session_state["github_sha"]
 
-    section_label("03", "Kết quả", f"QĐ {qd} — tổng {len(fd)} bản ghi")
+    st.markdown(f'<div style="{card_wrap()}">', unsafe_allow_html=True)
+    step_label("03", "Kết quả", f"QĐ {qd} — tổng {len(fd)} bản ghi")
 
     old_pairs = set(zip(ed["SubjectCode"], ed["Replacecode"])) if ed is not None else set()
     n_app = int((fd["replace_status"] == "applied").sum())
@@ -277,13 +288,13 @@ if "final_df" in st.session_state:
     n_new = sum(1 for r in nr if (r["SubjectCode"], r["Replacecode"]) not in old_pairs)
 
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Tổng", len(fd))
-    m2.metric("Hiệu lực", n_app)
-    m3.metric("Hết hiệu lực", n_exp)
-    m4.metric("Thêm mới", n_new)
-    m5.metric("Cập nhật", len(nr) - n_new)
+    m1.metric("Tổng bản ghi",  len(fd))
+    m2.metric("Đang hiệu lực", n_app)
+    m3.metric("Hết hiệu lực",  n_exp)
+    m4.metric("Thêm mới",      n_new)
+    m5.metric("Cập nhật",      len(nr) - n_new)
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
     f1, f2, f3 = st.columns([1, 1, 2])
     with f1: fs = st.selectbox("Trạng thái", ["Tất cả", "applied", "expired"])
@@ -299,11 +310,13 @@ if "final_df" in st.session_state:
         df = df[df["SubjectCode"].str.upper().str.contains(k, na=False) |
                 df["Replacecode"].str.upper().str.contains(k, na=False)]
 
-    st.markdown(f'<p style="color:{T["muted"]};font-size:12px;margin-bottom:6px">Hiển thị <b style="color:{T["text"]}">{len(df)}</b> / {len(fd)} bản ghi</p>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:{T["muted"]};font-size:12px;margin-bottom:8px;font-weight:500">Hiển thị <b style="color:{T["text"]}">{len(df)}</b> / {len(fd)} bản ghi</p>', unsafe_allow_html=True)
     st.dataframe(df, use_container_width=True, height=380)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ── 04 Save ───────────────────────────────────────────────────────────────
-    section_label("04", "Lưu dữ liệu", "Tải về máy hoặc đồng bộ lên GitHub")
+    st.markdown(f'<div style="{card_wrap()}">', unsafe_allow_html=True)
+    step_label("04", "Lưu dữ liệu", "Tải về máy hoặc đồng bộ lên GitHub")
 
     xb = to_excel_bytes(fd)
     cl, cg, _ = st.columns([1, 1, 2])
@@ -325,3 +338,7 @@ if "final_df" in st.session_state:
                     st.session_state["github_sha"] = new_sha
                 else:
                     st.error(f"Lỗi: {msg}")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # footer
+    st.markdown(f'<div style="text-align:center;padding:24px 0 8px"><span style="color:{T["muted"]};font-size:12px">© 2026 YenLT31 — FPT Education QA Department</span></div>', unsafe_allow_html=True)
