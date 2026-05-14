@@ -94,7 +94,8 @@ header[data-testid="stHeader"] { display: none !important; }
 .block-container { padding-top: 0 !important; max-width: 1300px !important; }
 [data-testid="stSidebarNav"] { display: none !important; }
 [data-testid="collapsedControl"] { z-index: 99999 !important; position: fixed !important; }
-iframe { z-index: 1 !important; }
+[data-testid="stCustomComponentV1"] { z-index: 0 !important; position: relative !important; }
+iframe { z-index: 0 !important; }
 [data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
 .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
     font-family: 'Plus Jakarta Sans', sans-serif !important; color: var(--text) !important;
@@ -470,6 +471,29 @@ function posTooltip(e) {{
 """
 
 components.html(constellation_html, height=400, scrolling=False)
+
+# ── Nút backup mở sidebar khi bị collapse ────────────────────────────────────
+sidebar_reopen = """
+<script>
+(function() {
+    function sync() {
+        var collapsed = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+        var btn = document.getElementById('sb-open');
+        if (!btn) return;
+        btn.style.display = collapsed ? 'flex' : 'none';
+    }
+    setInterval(sync, 600);
+})();
+</script>
+<button id="sb-open"
+    onclick="var b=window.parent.document.querySelector('[data-testid=collapsedControl] button');if(b)b.click();"
+    title="Mo menu" style="display:none;position:fixed;top:10px;left:10px;z-index:99999;
+    width:36px;height:36px;border-radius:8px;border:1px solid rgba(0,212,170,.4);
+    background:#0F1628;color:#00D4AA;font-size:17px;cursor:pointer;
+    align-items:center;justify-content:center;">&#9776;
+</button>
+"""
+components.html(sidebar_reopen, height=0)
 
 # ── Security note ─────────────────────────────────────────────────────────────
 st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
