@@ -97,7 +97,7 @@ st.markdown(f"""<style>:root{{
 st.markdown("""<style>
 /* App background */
 .stApp { background: var(--bg) !important; }
-header[data-testid="stHeader"] { display: none !important; }
+header[data-testid="stHeader"] { background: transparent !important; border-bottom: none !important; height: 0 !important; min-height: 0 !important; overflow: visible !important; }
 .block-container { padding-top: 0 !important; max-width: 1300px !important; }
 
 /* Sidebar */
