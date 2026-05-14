@@ -170,18 +170,18 @@ with st.sidebar:
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style="background:linear-gradient(160deg,{T['card']} 0%,{T['card2']} 55%,{T['bg']} 100%);
-            border-bottom:1px solid {T['border']};padding:48px 0 36px;
+            border-bottom:1px solid {T['border']};padding:24px 0 18px;
             margin:-1rem -1rem 0;text-align:center">
     <div style="font-size:12px;color:{T['accent']};font-weight:700;letter-spacing:1.2px;
                 text-transform:uppercase;margin-bottom:12px;font-family:'Plus Jakarta Sans',sans-serif">
         🔧 FPT QA Tools
     </div>
-    <h1 style="font-size:36px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
+    <h1 style="font-size:28px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
                margin:0 0 12px;line-height:1.2;font-family:'Plus Jakarta Sans',sans-serif">
         Hệ sinh thái công cụ<br>
         <span style="color:{T['accent']}">Đảm bảo chất lượng — FE</span>
     </h1>
-    <p style="color:{T['muted']};font-size:14px;margin:0 auto;max-width:460px;
+    <p style="color:{T['muted']};font-size:13px;margin:0 auto;max-width:460px;
               line-height:1.7;font-family:'Plus Jakarta Sans',sans-serif">
         Các công cụ kết nối với nhau thành một hệ thống —
         click vào từng sao để khám phá.
@@ -189,7 +189,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+st.markdown("", unsafe_allow_html=True)
 
 # ── Plotly Constellation ──────────────────────────────────────────────────────
 fig = go.Figure()
@@ -339,7 +339,7 @@ fig.update_layout(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     margin=dict(l=20, r=20, t=20, b=20),
-    height=380,
+    height=300,
     xaxis=dict(visible=False, range=[-4, 4]),
     yaxis=dict(visible=False, range=[-2, 2], scaleanchor="x", scaleratio=1),
     dragmode=False,
@@ -371,9 +371,9 @@ if clicked and clicked.get("selection") and clicked["selection"].get("points"):
             st.switch_page(page_path)
 
 # ── Security note ─────────────────────────────────────────────────────────────
-st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+st.markdown("", unsafe_allow_html=True)
 st.markdown(f"""
-<div style="background:{T['card']};border:1px solid {T['border']};border-radius:16px;padding:20px 26px">
+<div style="background:{T['card']};border:1px solid {T['border']};border-radius:16px;padding:12px 20px">
     <div style="font-size:14px;font-weight:700;color:{T['text']};margin-bottom:6px;
                 font-family:'Plus Jakarta Sans',sans-serif">💡 Thông tin bảo mật</div>
     <p style="color:{T['muted']};font-size:13px;line-height:1.7;margin:0;
@@ -389,5 +389,5 @@ st.markdown(f"""
         © 2026 YenLT31 — FPT Education QA Department
     </span>
 </div>
-<div style="height:20px"></div>
+
 """, unsafe_allow_html=True)
