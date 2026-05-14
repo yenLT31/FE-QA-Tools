@@ -93,6 +93,8 @@ st.markdown("""<style>
 header[data-testid="stHeader"] { display: none !important; }
 .block-container { padding-top: 0 !important; max-width: 1300px !important; }
 [data-testid="stSidebarNav"] { display: none !important; }
+[data-testid="collapsedControl"] { z-index: 99999 !important; position: fixed !important; }
+iframe { z-index: 1 !important; }
 [data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
 .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
     font-family: 'Plus Jakarta Sans', sans-serif !important; color: var(--text) !important;
