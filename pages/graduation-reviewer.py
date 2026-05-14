@@ -1,139 +1,297 @@
 import streamlit as st
 import os
 
-# ── Theme ─────────────────────────────────────────────────────────────────────
+# ============================================================
+#  THEME
+# ============================================================
+DARK = {
+    "bg": "#0f172a", "card": "#1e293b", "card2": "#334155",
+    "border": "#334155", "text": "#e2e8f0", "muted": "#94a3b8",
+    "accent": "#10b981", "accent_hover": "#059669",
+    "accent_light": "rgba(16,185,129,0.12)",
+    "sidebar_bg": "#0f172a", "sidebar_border": "#1e293b",
+    "input_bg": "#1e293b", "input_border": "#475569",
+    "shadow": "0 1px 3px rgba(0,0,0,0.4)",
+}
+LIGHT = {
+    "bg": "#f8fafc", "card": "#ffffff", "card2": "#f1f5f9",
+    "border": "#e2e8f0", "text": "#1e293b", "muted": "#64748b",
+    "accent": "#059669", "accent_hover": "#047857",
+    "accent_light": "rgba(5,150,105,0.08)",
+    "sidebar_bg": "#ffffff", "sidebar_border": "#e2e8f0",
+    "input_bg": "#f8fafc", "input_border": "#cbd5e1",
+    "shadow": "0 1px 3px rgba(0,0,0,0.06)",
+}
+
 if "theme" not in st.session_state:
     st.session_state.theme = "dark"
 
-DARK = dict(
-    bg="#080D18", card="#0F1628", border="#1E2D4A",
-    text="#E8EDF5", muted="#8892A4", accent="#00D4AA", accent_dim="#00A882",
-    green="#22C55E",
-    gbg="#052E16", gtxt="#22C55E",
-)
-LIGHT = dict(
-    bg="#F0F4F8", card="#FFFFFF", border="#E2E8F0",
-    text="#1A2540", muted="#64748B", accent="#0A9E7F", accent_dim="#077A62",
-    green="#16A34A",
-    gbg="#DCFCE7", gtxt="#15803D",
-)
 T = DARK if st.session_state.theme == "dark" else LIGHT
 
-# ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Graduation Reviewer", page_icon="🎓", layout="wide")
+# ============================================================
+#  PAGE CONFIG
+# ============================================================
+st.set_page_config(
+    page_title="Graduation Reviewer | FE QA Tools",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ============================================================
+#  GOOGLE FONT + GLOBAL CSS
+# ============================================================
 st.markdown(
     '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">',
     unsafe_allow_html=True,
 )
 
-st.markdown(f"""<style>
-:root {{
-    --bg:{T['bg']};--card:{T['card']};--border:{T['border']};
-    --text:{T['text']};--muted:{T['muted']};--accent:{T['accent']};
-}}
-.stApp {{ background: var(--bg) !important; }}
-header[data-testid="stHeader"] {{ display: none !important; }}
-.block-container {{ padding: 0 !important; max-width: 100% !important; }}
-[data-testid="stSidebar"] {{
-    background: var(--card) !important;
-    border-right: 1px solid var(--border) !important;
-}}
-.stMarkdown p, .stMarkdown span, .stMarkdown div,
-.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
-    color: var(--text) !important;
-}}
-.stButton > button {{
-    background: var(--accent) !important;
-    color: #080D18 !important;
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
-    font-weight: 700 !important;
-    border: none !important;
-    border-radius: 10px !important;
-    padding: 10px 22px !important;
-    transition: all .2s !important;
-}}
-.stButton > button:hover {{
-    background: {T['accent_dim']} !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 18px rgba(0,212,170,.22) !important;
-}}
-.stCheckbox span {{ color: var(--text) !important; font-size: 13px !important; }}
-iframe {{ border: none !important; }}
-</style>""", unsafe_allow_html=True)
+st.markdown(f"""
+<style>
+    :root {{
+        --bg: {T["bg"]};
+        --card: {T["card"]};
+        --card2: {T["card2"]};
+        --border: {T["border"]};
+        --text: {T["text"]};
+        --muted: {T["muted"]};
+        --accent: {T["accent"]};
+        --accent-hover: {T["accent_hover"]};
+        --accent-light: {T["accent_light"]};
+        --sidebar-bg: {T["sidebar_bg"]};
+        --sidebar-border: {T["sidebar_border"]};
+        --input-bg: {T["input_bg"]};
+        --input-border: {T["input_border"]};
+        --shadow: {T["shadow"]};
+    }}
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+    /* ---- Hide default Streamlit chrome ---- */
+    #MainMenu, header[data-testid="stHeader"],
+    footer, .stDeployButton {{display: none !important;}}
+
+    /* ---- Global ---- */
+    html, body, [data-testid="stAppViewContainer"],
+    .main .block-container {{
+        background-color: var(--bg) !important;
+        color: var(--text) !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }}
+    .main .block-container {{
+        padding: 1rem 1rem 2rem 1rem !important;
+        max-width: 100% !important;
+    }}
+
+    /* ---- Sidebar ---- */
+    section[data-testid="stSidebar"] {{
+        background-color: var(--sidebar-bg) !important;
+        border-right: 1px solid var(--sidebar-border) !important;
+    }}
+    section[data-testid="stSidebar"] * {{
+        color: var(--text) !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }}
+    section[data-testid="stSidebar"] .stMarkdown p {{
+        margin-bottom: 0.3rem;
+    }}
+
+    /* ---- Buttons ---- */
+    .stButton > button {{
+        background-color: var(--accent) !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+        transition: background-color 0.2s ease;
+    }}
+    .stButton > button:hover {{
+        background-color: var(--accent-hover) !important;
+    }}
+
+    /* ---- iframe container ---- */
+    iframe {{
+        border: 1px solid var(--border) !important;
+        border-radius: 12px !important;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+#  SIDEBAR
+# ============================================================
 with st.sidebar:
-    # Logo
+
+    # ---------- Logo & Title ----------
     st.markdown(f"""
-    <div style="padding:16px 0 20px;border-bottom:1px solid {T['border']};margin-bottom:20px">
-        <div style="font-size:15px;font-weight:800;color:{T['accent']};letter-spacing:-.3px">
-            🎓 Graduation
+    <div style="
+        display:flex; align-items:center; gap:12px;
+        padding:8px 0 16px 0; border-bottom:1px solid var(--border);
+        margin-bottom:20px;">
+        <div style="
+            width:40px; height:40px; border-radius:12px;
+            background:linear-gradient(135deg, {T['accent']}, #34d399);
+            display:flex; align-items:center; justify-content:center;
+            font-size:20px; flex-shrink:0;">
+            🎓
         </div>
-        <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.9px;
-                    text-transform:uppercase;margin-top:2px">Reviewer</div>
+        <div>
+            <div style="font-size:15px; font-weight:800; color:{T['text']}; line-height:1.2;">
+                Graduation Reviewer
+            </div>
+            <div style="font-size:11px; color:{T['muted']}; font-weight:500;">
+                FE Education QA Department
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Theme toggle
-    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:8px">Giao diện</p>', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("☀ Sáng", use_container_width=True, key="btn_light"):
-            st.session_state.theme = "light"; st.rerun()
-    with c2:
-        if st.button("🌙 Tối", use_container_width=True, key="btn_dark"):
-            st.session_state.theme = "dark"; st.rerun()
-
-    # Info
-    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
-    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:10px">Thông tin</p>', unsafe_allow_html=True)
+    # ---------- Theme toggle ----------
     st.markdown(f"""
-    <div style="background:{T['gbg']};border:1px solid {T['green']}33;border-radius:10px;
-                padding:9px 13px;margin-bottom:10px">
-        <span style="color:{T['green']};font-size:13px;font-weight:600">● Xử lý tại Local</span>
+    <div style="
+        font-size:12px; font-weight:700; color:{T['muted']};
+        text-transform:uppercase; letter-spacing:1px;
+        margin-bottom:8px;">
+        Giao diện
     </div>
-    <p style="color:{T['muted']};font-size:11px;line-height:1.5;margin-bottom:0">
-        Toàn bộ dữ liệu được xử lý trên trình duyệt.<br>
-        Không upload lên server.
-    </p>
     """, unsafe_allow_html=True)
 
-    # Hướng dẫn
-    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
-    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:10px">Hướng dẫn</p>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("☀ Sáng", use_container_width=True,
+                      type="primary" if st.session_state.theme == "light" else "secondary"):
+            st.session_state.theme = "light"
+            st.rerun()
+    with col2:
+        if st.button("🌙 Tối", use_container_width=True,
+                      type="primary" if st.session_state.theme == "dark" else "secondary"):
+            st.session_state.theme = "dark"
+            st.rerun()
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # ---------- Security info ----------
     st.markdown(f"""
-    <div style="color:{T['muted']};font-size:12px;line-height:1.8">
-        <b style="color:{T['text']}">1.</b> Upload 5 file Excel<br>
-        <b style="color:{T['text']}">2.</b> Bấm "Bắt đầu rà soát"<br>
-        <b style="color:{T['text']}">3.</b> Xem kết quả & tải báo cáo
+    <div style="
+        background: var(--accent-light);
+        border:1px solid {T['accent']}33;
+        border-radius:10px; padding:14px; margin-bottom:20px;">
+        <div style="font-size:13px; font-weight:700; color:{T['accent']}; margin-bottom:6px;">
+            🔒 Bảo mật dữ liệu
+        </div>
+        <div style="font-size:12px; color:{T['muted']}; line-height:1.5;">
+            Mọi dữ liệu được xử lý <strong>100% tại trình duyệt</strong> của bạn.
+            Không có thông tin nào được gửi lên server.
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Footer — dùng margin thay vì position absolute
+    # ---------- Hướng dẫn nhanh ----------
     st.markdown(f"""
-    <div style="margin-top:40px;padding-top:12px;border-top:1px solid {T['border']}">
-        <p style="color:{T['muted']};font-size:10px;text-align:center;margin:0">
-            © 2026 YenLT31<br>FE Education QA Department
-        </p>
+    <div style="
+        font-size:12px; font-weight:700; color:{T['muted']};
+        text-transform:uppercase; letter-spacing:1px;
+        margin-bottom:10px;">
+        Hướng dẫn sử dụng
+    </div>
+    <div style="font-size:12.5px; color:{T['muted']}; line-height:1.8;">
+        <div style="margin-bottom:8px;">
+            <span style="
+                display:inline-flex; align-items:center; justify-content:center;
+                width:22px; height:22px; border-radius:6px;
+                background:{T['accent']}; color:#fff;
+                font-size:11px; font-weight:800; margin-right:8px;">
+                1
+            </span>
+            Upload 5 file Excel đầu vào
+        </div>
+        <div style="margin-bottom:8px;">
+            <span style="
+                display:inline-flex; align-items:center; justify-content:center;
+                width:22px; height:22px; border-radius:6px;
+                background:{T['accent']}; color:#fff;
+                font-size:11px; font-weight:800; margin-right:8px;">
+                2
+            </span>
+            Nhấn "Bắt đầu rà soát"
+        </div>
+        <div style="margin-bottom:8px;">
+            <span style="
+                display:inline-flex; align-items:center; justify-content:center;
+                width:22px; height:22px; border-radius:6px;
+                background:{T['accent']}; color:#fff;
+                font-size:11px; font-weight:800; margin-right:8px;">
+                3
+            </span>
+            Chờ hệ thống xử lý (7 bước)
+        </div>
+        <div style="margin-bottom:0;">
+            <span style="
+                display:inline-flex; align-items:center; justify-content:center;
+                width:22px; height:22px; border-radius:6px;
+                background:{T['accent']}; color:#fff;
+                font-size:11px; font-weight:800; margin-right:8px;">
+                4
+            </span>
+            Xem kết quả & tải báo cáo Excel
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-# ── Load & Embed HTML (giữ nguyên file gốc) ──────────────────────────────────
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # ---------- Files cần upload ----------
+    st.markdown(f"""
+    <div style="
+        font-size:12px; font-weight:700; color:{T['muted']};
+        text-transform:uppercase; letter-spacing:1px;
+        margin-bottom:10px;">
+        Files đầu vào
+    </div>
+    <div style="
+        background: var(--card2);
+        border:1px solid var(--border);
+        border-radius:10px; padding:14px;">
+        <div style="font-size:12px; color:{T['muted']}; line-height:2;">
+            📋 <strong>cancheck</strong> – DS ứng viên tốt nghiệp<br>
+            👤 <strong>currstudent</strong> – DS sinh viên hiện tại<br>
+            📚 <strong>currsubject</strong> – DS môn học đang mở<br>
+            📊 <strong>mark</strong> – Bảng điểm<br>
+            🔄 <strong>replacecode</strong> – DS mã học phần thay thế
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ---------- Footer ----------
+    st.markdown(f"""
+    <div style="
+        margin-top:40px;
+        padding-top:16px;
+        border-top:1px solid var(--border);
+        text-align:center;">
+        <div style="font-size:11px; color:{T['muted']};">
+            © 2026 <strong style="color:{T['accent']}">YenLT31</strong>
+        </div>
+        <div style="font-size:10px; color:{T['muted']}; margin-top:2px;">
+            FE Education QA Department
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ============================================================
+#  MAIN CONTENT – Load original HTML (100% unchanged)
+# ============================================================
 html_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "scripts", "graduation-reviewer.html")
+    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'graduation-reviewer.html')
 )
 
 try:
-    with open(html_path, "r", encoding="utf-8") as f:
+    with open(html_path, 'r', encoding='utf-8') as f:
         html_content = f.read()
 
     st.components.v1.html(html_content, height=2000, scrolling=True)
 
 except FileNotFoundError:
-    st.error(f"❌ Không tìm thấy file: `scripts/graduation-reviewer.html`")
-    st.info("Vui lòng đảm bảo file tồn tại trong repo.")
+    st.error("❌ Không tìm thấy file: `scripts/graduation-reviewer.html`")
+    st.info("Hãy đảm bảo file HTML nằm tại đường dẫn: `scripts/graduation-reviewer.html`")
 except Exception as e:
     st.error(f"❌ Lỗi khi load HTML: `{e}`")
