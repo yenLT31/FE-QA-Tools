@@ -120,8 +120,9 @@ header[data-testid="stHeader"] { display: none !important; }
 .stButton > button:hover { background: var(--adim) !important; transform: translateY(-1px) !important; }
 /* Ẩn Plotly modebar */
 .modebar { display: none !important; }
-[data-testid="collapsedControl"] { z-index: 99999 !important; position: fixed !important; }
-[data-testid="stCustomComponentV1"] { z-index: 0 !important; }
+/* Đảm bảo nút >> mở sidebar không bị che */
+section[data-testid="stMain"] { padding-left: 1rem !important; }
+
 </style>""", unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
