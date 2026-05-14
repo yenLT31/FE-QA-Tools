@@ -104,7 +104,7 @@ st.markdown(f"""<style>:root{{
 
 st.markdown("""<style>
 .stApp { background: var(--bg) !important; }
-header[data-testid="stHeader"] { display: none !important; }
+header[data-testid="stHeader"] { background: transparent !important; border-bottom: none !important; height: 0 !important; min-height: 0 !important; overflow: visible !important; }
 .block-container { padding-top: 0 !important; max-width: 1300px !important; }
 [data-testid="stSidebarNav"] { display: none !important; }
 [data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
