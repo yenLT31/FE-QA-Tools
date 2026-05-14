@@ -111,7 +111,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="padding:16px 0 20px;border-bottom:1px solid {T['border']};margin-bottom:20px">
         <div style="font-size:15px;font-weight:800;color:{T['accent']};
-                    font-family:'Plus Jakarta Sans',sans-serif">🔧 FPT QA Tools</div>
+                    font-family:'Plus Jakarta Sans',sans-serif">🔧 FE QA Tools</div>
         <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.9px;
                     text-transform:uppercase;margin-top:3px;font-family:'Plus Jakarta Sans',sans-serif">
             QA Department — FE
@@ -145,7 +145,7 @@ with st.sidebar:
     st.markdown(f"""
     <div style="height:1px;background:{T['border']};margin:18px 0"></div>
     <div style="font-size:11px;color:{T['muted']};line-height:1.7;font-family:'Plus Jakarta Sans',sans-serif">
-        © 2026 YenLT31<br>FPT Education QA Department
+        © 2026 YenLT31<br>FE Education QA Department
     </div>""", unsafe_allow_html=True)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ st.markdown(f"""
             margin:-1rem -1rem 0;text-align:center">
     <div style="font-size:12px;color:{T['accent']};font-weight:700;letter-spacing:1.2px;
                 text-transform:uppercase;margin-bottom:12px;font-family:'Plus Jakarta Sans',sans-serif">
-        🔧 FPT QA Tools
+        🔧 FE QA Tools
     </div>
     <h1 style="font-size:36px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
                margin:0 0 12px;line-height:1.2;font-family:'Plus Jakarta Sans',sans-serif">
@@ -479,13 +479,13 @@ st.markdown(f"""
               font-family:'Plus Jakarta Sans',sans-serif">
         Toàn bộ dữ liệu được xử lý tại trình duyệt (Local). Chúng mình không lưu trữ
         bất kỳ thông tin sinh viên nào trên server để đảm bảo an toàn dữ liệu tuyệt đối
-        theo quy định của FPT Education.
+        theo quy định của FE Education.
     </p>
 </div>
 <div style="height:36px"></div>
 <div style="text-align:center">
     <span style="color:{T['muted']};font-size:12px;font-family:'Plus Jakarta Sans',sans-serif">
-        © 2026 YenLT31 — FPT Education QA Department
+        © 2026 YenLT31 — FE Education QA Department
     </span>
 </div>
 <div style="height:20px"></div>
