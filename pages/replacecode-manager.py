@@ -77,7 +77,7 @@ LIGHT = dict(
 T = DARK if st.session_state.theme == "dark" else LIGHT
 
 # ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="ReplaceCode Manager", page_icon="📋", layout="wide")
+st.set_page_config(page_title="ReplaceCode Manager", page_icon="📋", layout="wide", initial_sidebar_state="expanded")
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
 st.markdown(
