@@ -102,6 +102,7 @@ header[data-testid="stHeader"] { display: none !important; }
 
 /* Sidebar */
 [data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
+section[data-testid="stMain"] { padding-left: 1rem !important; }
 
 /* Typography — CHỈ target text elements, không phải icon */
 .stMarkdown p, .stMarkdown span, .stMarkdown div,
