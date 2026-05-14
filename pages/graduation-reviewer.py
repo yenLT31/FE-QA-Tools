@@ -66,8 +66,50 @@ st.markdown(f"""
     }}
 
     /* ---- Hide default Streamlit chrome ---- */
-    #MainMenu, header[data-testid="stHeader"],
-    footer, .stDeployButton {{display: none !important;}}
+    /* Ẩn menu hamburger, footer, deploy button */
+#MainMenu, footer, .stDeployButton,
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+
+/* Ẩn nội dung header nhưng GIỮ nút toggle sidebar */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    border: none !important;
+    height: auto !important;
+}
+
+/* Đảm bảo nút toggle sidebar luôn hiển thị */
+button[data-testid="stSidebarCollapseButton"],
+button[data-testid="stSidebarCollapsedControl"],
+section[data-testid="stSidebar"] button[kind="header"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+    position: fixed !important;
+    top: 12px !important;
+    left: 12px !important;
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 8px !important;
+    width: 36px !important;
+    height: 36px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    box-shadow: var(--shadow) !important;
+}
+
+/* Icon bên trong nút toggle */
+button[data-testid="stSidebarCollapseButton"] svg,
+button[data-testid="stSidebarCollapsedControl"] svg {
+    fill: var(--accent) !important;
+    stroke: var(--accent) !important;
+    width: 18px !important;
+    height: 18px !important;
+}
+
 
     /* ---- Global ---- */
     html, body, [data-testid="stAppViewContainer"],
