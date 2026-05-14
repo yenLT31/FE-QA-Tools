@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import json
 
 st.set_page_config(
-    page_title="FPT QA Tools",
+    page_title="FE QA Tools",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded"
