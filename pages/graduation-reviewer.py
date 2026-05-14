@@ -65,7 +65,7 @@ st.markdown(f"""
         --shadow: {T["shadow"]};
     }}
 
-    /* ---- Ẩn menu, footer, deploy – KHÔNG ẩn header ---- */
+    /* ---- Ẩn menu, footer, deploy ---- */
     #MainMenu, footer, .stDeployButton,
     div[data-testid="stDecoration"] {{
         display: none !important;
@@ -80,15 +80,11 @@ st.markdown(f"""
 
     /* ---- Nút toggle sidebar luôn hiển thị ---- */
     button[data-testid="stSidebarCollapseButton"],
-    button[data-testid="stSidebarCollapsedControl"],
-    section[data-testid="stSidebar"] button[kind="header"] {{
+    button[data-testid="stSidebarCollapsedControl"] {{
         display: flex !important;
         visibility: visible !important;
         opacity: 1 !important;
         z-index: 999999 !important;
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
         background: {T["card"]} !important;
         border: 1px solid {T["border"]} !important;
         border-radius: 8px !important;
@@ -98,20 +94,15 @@ st.markdown(f"""
         justify-content: center !important;
         cursor: pointer !important;
         box-shadow: {T["shadow"]} !important;
+        transition: all 0.2s ease !important;
     }}
 
-    /* Khi sidebar đang mở, dời nút sang phải sidebar */
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ div button[data-testid="stSidebarCollapseButton"] {{
-        left: auto !important;
+    button[data-testid="stSidebarCollapseButton"]:hover,
+    button[data-testid="stSidebarCollapsedControl"]:hover {{
+        background: {T["card2"]} !important;
+        border-color: {T["accent"]} !important;
     }}
 
-    /* Khi sidebar đang đóng, nút nằm góc trái */
-    button[data-testid="stSidebarCollapsedControl"] {{
-        left: 12px !important;
-        top: 12px !important;
-    }}
-
-    /* Icon trong nút toggle */
     button[data-testid="stSidebarCollapseButton"] svg,
     button[data-testid="stSidebarCollapsedControl"] svg {{
         fill: {T["accent"]} !important;
@@ -145,9 +136,10 @@ st.markdown(f"""
         margin-bottom: 0.3rem;
     }}
 
-    /* ---- Sidebar nav links ẩn ---- */
+    /* ---- Ẩn sidebar nav mặc định ---- */
     section[data-testid="stSidebar"] ul[data-testid="stSidebarNavItems"],
-    section[data-testid="stSidebar"] nav[data-testid="stSidebarNav"] {{
+    section[data-testid="stSidebar"] nav[data-testid="stSidebarNav"],
+    [data-testid="stSidebarNav"] {{
         display: none !important;
     }}
 
@@ -329,10 +321,17 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # ---------- Quay về trang chủ ----------
+    st.markdown(f"""
+    <div style="height:1px;background:{T['border']};margin:20px 0 16px"></div>
+    """, unsafe_allow_html=True)
+
+    st.page_link("app.py", label="🏠  Quay về trang chủ")
+
     # ---------- Footer ----------
     st.markdown(f"""
     <div style="
-        margin-top:40px;
+        margin-top:24px;
         padding-top:16px;
         border-top:1px solid {T['border']};
         text-align:center;">
