@@ -28,7 +28,6 @@ LIGHT = dict(
 T = DARK if st.session_state.theme == "dark" else LIGHT
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-# Thêm tool mới vào đây
 TOOLS = [
     dict(
         id="graduation-reviewer",
@@ -48,19 +47,8 @@ TOOLS = [
         page="/replacecode-manager",
         uses=80,
     ),
-    # dict(
-    #     id="new-tool",
-    #     name="Tool mới",
-    #     desc="Mô tả tool mới...",
-    #     icon="📈",
-    #     status="coming",
-    #     page="/new-tool",
-    #     uses=0,
-    # ),
 ]
 
-# Mối quan hệ giữa các tool
-# desc_short hiện trên đường nối; desc_full cho tooltip
 RELATIONS = [
     dict(
         from_id="graduation-reviewer",
@@ -70,7 +58,6 @@ RELATIONS = [
     ),
 ]
 
-# Tính degree (số quan hệ mỗi tool)
 for tool in TOOLS:
     tool["degree"] = sum(
         1 for r in RELATIONS
@@ -88,22 +75,69 @@ st.markdown(f"""<style>:root{{
 --green:{T['green']};--gbg:{T['gbg']};--gtxt:{T['gtxt']};
 }}</style>""", unsafe_allow_html=True)
 
-st.markdown("""<style>
-.stApp { background: var(--bg) !important; }
-header[data-testid="stHeader"] { display: none !important; }
-.block-container { padding-top: 0 !important; max-width: 1300px !important; }
-[data-testid="stSidebarNav"] { display: none !important; }
-[data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
-.stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+st.markdown(f"""<style>
+.stApp {{ background: var(--bg) !important; }}
+
+/* ===== SỬA: Không ẩn header, chỉ làm trong suốt ===== */
+#MainMenu, footer, .stDeployButton,
+div[data-testid="stDecoration"] {{
+    display: none !important;
+}}
+
+header[data-testid="stHeader"] {{
+    background: transparent !important;
+    border: none !important;
+    height: auto !important;
+}}
+
+/* ===== Nút toggle sidebar luôn hiển thị ===== */
+button[data-testid="stSidebarCollapseButton"],
+button[data-testid="stSidebarCollapsedControl"] {{
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+    background: {T['card']} !important;
+    border: 1px solid {T['border']} !important;
+    border-radius: 8px !important;
+    width: 36px !important;
+    height: 36px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+    transition: all 0.2s ease !important;
+}}
+
+button[data-testid="stSidebarCollapseButton"]:hover,
+button[data-testid="stSidebarCollapsedControl"]:hover {{
+    background: {T['card2']} !important;
+    border-color: {T['accent']} !important;
+}}
+
+button[data-testid="stSidebarCollapseButton"] svg,
+button[data-testid="stSidebarCollapsedControl"] svg {{
+    fill: {T['accent']} !important;
+    stroke: {T['accent']} !important;
+    width: 18px !important;
+    height: 18px !important;
+}}
+
+.block-container {{ padding-top: 0 !important; max-width: 1300px !important; }}
+
+[data-testid="stSidebarNav"] {{ display: none !important; }}
+[data-testid="stSidebar"] {{ background: var(--card) !important; border-right: 1px solid var(--border) !important; }}
+
+.stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {{
     font-family: 'Plus Jakarta Sans', sans-serif !important; color: var(--text) !important;
-}
-.stButton > button {
+}}
+.stButton > button {{
     background: var(--accent) !important; color: #080D18 !important;
     font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 700 !important;
     font-size: 14px !important; border: none !important; border-radius: 10px !important;
     padding: 10px 22px !important; transition: all .2s !important;
-}
-.stButton > button:hover { background: var(--adim) !important; transform: translateY(-1px) !important; }
+}}
+.stButton > button:hover {{ background: var(--adim) !important; transform: translateY(-1px) !important; }}
 </style>""", unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -252,7 +286,6 @@ const NS  = 'http://www.w3.org/2000/svg';
 const svg = document.getElementById('svg');
 const W = 800, H = 380;
 
-// ── Size calculation ──────────────────────────────────────────────────────────
 const maxDeg  = Math.max(...TOOLS.map(t => t.degree), 1);
 const maxUses = Math.max(...TOOLS.map(t => t.uses), 1);
 const MIN_R = 28, MAX_R = 50;
@@ -263,7 +296,6 @@ TOOLS.forEach(t => {{
     t.r = Math.round(MIN_R + (ds * 0.45 + us * 0.55) * (MAX_R - MIN_R));
 }});
 
-// ── Layout ────────────────────────────────────────────────────────────────────
 const n = TOOLS.length;
 const cx = W / 2, cy = H / 2;
 
@@ -281,7 +313,6 @@ if (n === 1) {{
     }});
 }}
 
-// ── Decorative background stars ───────────────────────────────────────────────
 for (let i = 0; i < 70; i++) {{
     const s = document.createElementNS(NS, 'circle');
     s.setAttribute('cx', Math.random() * W);
@@ -292,13 +323,11 @@ for (let i = 0; i < 70; i++) {{
     svg.appendChild(s);
 }}
 
-// ── Connection lines ──────────────────────────────────────────────────────────
 RELATIONS.forEach(rel => {{
     const from = TOOLS.find(t => t.id === rel.from_id);
     const to   = TOOLS.find(t => t.id === rel.to_id);
     if (!from || !to) return;
 
-    // Compute offset points (stop at node border)
     const dx = to.x - from.x, dy = to.y - from.y;
     const dist = Math.sqrt(dx*dx + dy*dy);
     const ux = dx/dist, uy = dy/dist;
@@ -307,7 +336,6 @@ RELATIONS.forEach(rel => {{
     const x2 = to.x   - ux * (to.r   + 10);
     const y2 = to.y   - uy * (to.r   + 10);
 
-    // Glow
     const g = document.createElementNS(NS, 'line');
     g.setAttribute('x1',x1); g.setAttribute('y1',y1);
     g.setAttribute('x2',x2); g.setAttribute('y2',y2);
@@ -317,7 +345,6 @@ RELATIONS.forEach(rel => {{
     g.setAttribute('filter','url(#glow)');
     svg.appendChild(g);
 
-    // Animated dash
     const line = document.createElementNS(NS, 'line');
     line.setAttribute('x1',x1); line.setAttribute('y1',y1);
     line.setAttribute('x2',x2); line.setAttribute('y2',y2);
@@ -329,7 +356,6 @@ RELATIONS.forEach(rel => {{
     line.style.animation = 'dash 1.8s linear infinite';
     svg.appendChild(line);
 
-    // Midpoint label
     const mx = (from.x + to.x) / 2;
     const my = (from.y + to.y) / 2 - 14;
 
@@ -356,7 +382,6 @@ RELATIONS.forEach(rel => {{
     svg.appendChild(lbl);
 }});
 
-// ── Tool nodes ────────────────────────────────────────────────────────────────
 const tooltip  = document.getElementById('tooltip');
 const ttName   = document.getElementById('tt-name');
 const ttDesc   = document.getElementById('tt-desc');
@@ -367,7 +392,6 @@ TOOLS.forEach(tool => {{
     g.style.cursor = tool.status === 'live' ? 'pointer' : 'default';
     svg.appendChild(g);
 
-    // Outer halo (animated)
     const halo = document.createElementNS(NS, 'circle');
     halo.setAttribute('cx', tool.x); halo.setAttribute('cy', tool.y);
     halo.setAttribute('r', tool.r + 14);
@@ -376,7 +400,6 @@ TOOLS.forEach(tool => {{
     halo.style.animation = `twinkle ${{(Math.random()*2+2.5).toFixed(1)}}s ease-in-out infinite`;
     g.appendChild(halo);
 
-    // Main circle
     const circle = document.createElementNS(NS, 'circle');
     circle.setAttribute('cx', tool.x); circle.setAttribute('cy', tool.y);
     circle.setAttribute('r', tool.r);
@@ -387,7 +410,6 @@ TOOLS.forEach(tool => {{
     circle.style.transition = 'all .2s';
     g.appendChild(circle);
 
-    // Icon
     const icon = document.createElementNS(NS, 'text');
     icon.setAttribute('x', tool.x); icon.setAttribute('y', tool.y + 8);
     icon.setAttribute('text-anchor','middle');
@@ -397,7 +419,6 @@ TOOLS.forEach(tool => {{
     icon.style.pointerEvents = 'none';
     g.appendChild(icon);
 
-    // Name label
     const label = document.createElementNS(NS, 'text');
     label.setAttribute('x', tool.x); label.setAttribute('y', tool.y + tool.r + 18);
     label.setAttribute('text-anchor','middle');
@@ -409,7 +430,6 @@ TOOLS.forEach(tool => {{
     label.style.pointerEvents = 'none';
     g.appendChild(label);
 
-    // Status dot
     if (tool.status === 'live') {{
         const dot = document.createElementNS(NS, 'circle');
         dot.setAttribute('cx', tool.x + tool.r * 0.7);
@@ -420,16 +440,13 @@ TOOLS.forEach(tool => {{
         g.appendChild(dot);
     }}
 
-    // ── Events ────────────────────────────────────────────────────────────────
     g.addEventListener('mouseenter', e => {{
         if (tool.status !== 'live') return;
         circle.setAttribute('stroke-width','2.5');
         halo.setAttribute('fill-opacity','0.16');
-
         ttName.textContent  = tool.name;
         ttDesc.textContent  = tool.desc;
         ttBadge.style.display = 'inline-block';
-
         tooltip.style.opacity = '1';
         posTooltip(e);
     }});
@@ -444,7 +461,6 @@ TOOLS.forEach(tool => {{
 
     g.addEventListener('click', () => {{
         if (tool.status !== 'live') return;
-        // Flash animation
         circle.setAttribute('stroke-width','4');
         circle.setAttribute('stroke-opacity','1');
         halo.setAttribute('fill-opacity','0.28');
