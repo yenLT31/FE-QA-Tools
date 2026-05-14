@@ -9,9 +9,9 @@ import os
 
 def is_valid_subject_code(s):
     """
-    Kiểm tra mã môn hợp lệ.
-    Hợp lệ : IOT102, NWC303, SYB302c, PRU211m, AIL303m
-    Không hợp lệ : "Thay thế bằng môn combo khác..."
+    Kiem tra ma mon hop le.
+    Hop le : IOT102, NWC303, SYB302c, PRU211m, AIL303m
+    Khong hop le : "Thay the bang mon combo khac..."
     """
     s = s.strip()
     return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
@@ -19,31 +19,69 @@ def is_valid_subject_code(s):
 
 def _normalize(s):
     """
-    Chuẩn hóa chuỗi: lower + strip + thay newline bằng space.
-    Dùng để so sánh nội dung cell bất kể PDF có xuống dòng hay không.
-    VD: "Thay\nthe" -> "thay the" -> match duoc "thay the"
+    Chuan hoa chuoi: lower + strip + thay newline bang space.
+    De so sanh noi dung cell bat ke PDF co xuong dong hay khong.
+    VD: "Thay\\nthe" -> "thay the" -> match duoc "thay the"
     """
     if s is None:
         return ""
     return str(s).lower().strip().replace('\n', ' ')
 
 
+def _merge_continuation_rows(table):
+    """
+    Gop dong tiep noi vao dong chinh truoc do.
+
+    Dong tiep noi: row[0] la None hoac rong (khong co so thu tu).
+    pdfplumber thuong tach cell nhieu dong thanh nhieu row rieng biet.
+
+    Vi du:
+        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay', ...]
+        Row 10: [None, None, ..., None, ..., 'the', ...]
+        -> Sau gop:
+        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay the', ...]
+    """
+    if not table:
+        return []
+
+    merged = []
+    for row in table:
+        if not row:
+            continue
+
+        cell_0 = str(row[0]).strip() if row[0] else ""
+
+        # Dong tiep noi: row[0] rong va da co dong truoc
+        if not cell_0 and merged:
+            prev = merged[-1]
+            # Dam bao prev du do dai
+            while len(prev) < len(row):
+                prev.append(None)
+            # Gop tung cell: append noi dung moi vao cell cu
+            for i, cell in enumerate(row):
+                if cell and str(cell).strip():
+                    val = str(cell).strip()
+                    if prev[i]:
+                        prev[i] = str(prev[i]).rstrip() + ' ' + val
+                    else:
+                        prev[i] = val
+        else:
+            merged.append(list(row))
+
+    return merged
+
+
 def _find_hinh_thuc_idx(row):
     """
-    Tim vi tri cot Hinh thuc trong row bang cach do o chua
-    'tuong duong' hoac 'thay the'. Mac dinh tra ve 4 neu khong tim thay.
-
-    Ly do can ham nay:
-    1. Cell curriculumcode dai bi pdfplumber tach thanh nhieu cell
-       -> cac cot sau lech sang phai.
-    2. Cell "Thay the" doi khi chua ky tu xuong dong "Thay\nthe"
-       -> can chuan hoa truoc khi so sanh.
+    Tim vi tri cot Hinh thuc trong row (sau khi da gop continuation rows).
+    Do o chua 'tuong duong' hoac 'thay the'.
+    Mac dinh tra ve 4 neu khong tim thay.
     """
-    for i in range(3, len(row)):
+    for i in range(2, len(row)):
         val = _normalize(row[i])
-        if "tuong duong" in val or "thay the" in val or "tương đương" in val or "thay thế" in val:
+        if "tương đương" in val or "thay thế" in val:
             return i
-    return 4  # fallback mac dinh
+    return 4  # fallback
 
 
 # ── Ham chinh ─────────────────────────────────────────────────────────────────
@@ -53,8 +91,8 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
     Trich xuat du lieu mon tuong duong tu PDF.
 
     Args:
-        pdf_source : duong dan file (str) hoac bytes / BytesIO (tu Streamlit upload)
-        so_qd      : so quyet dinh, tu dong lay tu ten file neu pdf_source la str
+        pdf_source : duong dan file (str) hoac bytes / BytesIO
+        so_qd      : so quyet dinh
 
     Returns:
         (data_rows, skipped_rows)
@@ -62,7 +100,6 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
     data_rows    = []
     skipped_rows = []
 
-    # Xac dinh nguon mo
     if isinstance(pdf_source, str):
         file_name   = os.path.basename(pdf_source)
         match       = re.search(r'\d+', file_name)
@@ -75,12 +112,15 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
     with pdfplumber.open(open_target) as pdf:
         for page_num, page in enumerate(pdf.pages, 1):
-            table = page.extract_table({
+            raw_table = page.extract_table({
                 "vertical_strategy": "lines",
                 "horizontal_strategy": "lines"
             })
-            if not table:
+            if not raw_table:
                 continue
+
+            # ── BUOC 1: Gop dong tiep noi truoc khi parse ────────────────
+            table = _merge_continuation_rows(raw_table)
 
             for row in table:
                 if not row or len(row) < 5:
@@ -92,7 +132,8 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 # Bo qua dong tieu de
                 if any(kw in cell_0 for kw in ["TT", "STT"]):
                     continue
-                if any(kw in cell_1 for kw in ["M\u00e3", "h\u1ecdc ph\u1ea7n", "tri\u1ec3n khai"]):
+                if any(kw in cell_1 for kw in ["Mã", "học phần", "triển khai",
+                                                "Ma", "hoc phan", "trien khai"]):
                     continue
 
                 # Cot co dinh
@@ -102,11 +143,14 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 if not subject_raw:
                     continue
 
-                # Tim dong vi tri cot Hinh thuc
+                # ── BUOC 2: Tim vi tri cot Hinh thuc ─────────────────────
+                # Sau khi gop row, "Thay the" da nam trong 1 cell
+                # _find_hinh_thuc_idx bat dau tu col 2 (skip TT, SubjectCode)
                 ht_idx = _find_hinh_thuc_idx(row)
 
-                # curriculum: gop tat ca cell tu row[3] den truoc ht_idx
-                # Chuan hoa: thay \n bang space trong tung part
+                # ── BUOC 3: Lay curriculum ────────────────────────────────
+                # Gom tat ca cell khong rong tu row[3] den truoc ht_idx
+                # (bo qua row[2] vi do la Replacecode)
                 curriculum_parts = []
                 for i in range(3, ht_idx):
                     if row[i] and str(row[i]).strip():
@@ -114,15 +158,13 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         curriculum_parts.append(part)
                 curriculum = ", ".join(curriculum_parts)
 
-                # hinh_thuc: chuan hoa (lower + replace \n -> space)
+                # ── BUOC 4: Lay Hinh thuc va Chu y ───────────────────────
                 hinh_thuc = _normalize(row[ht_idx]) if len(row) > ht_idx else ""
-
-                # chu_y: o ht_idx + 2
                 chu_y = ""
                 if len(row) > ht_idx + 2 and row[ht_idx + 2]:
                     chu_y = str(row[ht_idx + 2]).strip().replace('\n', ' ')
 
-                # Bo qua neu Replacecode la mo ta van ban (khong phai ma mon)
+                # Bo qua neu Replacecode la mo ta van ban
                 first_code = replace_raw.split(',')[0].split('/')[0].strip()
                 if not replace_raw or not is_valid_subject_code(first_code):
                     if subject_raw and replace_raw:
@@ -130,19 +172,15 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                             "page"           : page_num,
                             "SubjectCode"    : subject_raw,
                             "Replacecode_raw": replace_raw,
-                            "ly_do"          : "Replacecode khong phai ma mon hop le"
+                            "ly_do"          : "Replacecode khong phai ma mon"
                         })
                     continue
 
-                # Logic equivalent / replace
-                # "Tuong duong" -> 2 chieu : replace=TRUE, equivalent=TRUE
-                # "Thay the"   -> 1 chieu : replace=TRUE, equivalent=FALSE
-                equivalent = "TRUE" if ("tương đương" in hinh_thuc or "tuong duong" in hinh_thuc) else "FALSE"
+                # Logic equivalent
+                equivalent = "TRUE" if "tương đương" in hinh_thuc else "FALSE"
+                note       = f"{so_qd} {chu_y}".strip()
 
-                # Note = "{so_qd} {chu_y}"
-                note = f"{so_qd} {chu_y}".strip()
-
-                # Xu ly nhieu SubjectCode trong 1 o: "LAB101, PRU211m, PRU212"
+                # Xu ly nhieu SubjectCode trong 1 o
                 for sc in re.split(r'[,/\n]+', subject_raw):
                     sc = sc.strip()
                     if sc and is_valid_subject_code(sc):
@@ -164,16 +202,9 @@ def merge_database(existing_df, new_rows):
     """
     Gop du lieu QD moi vao database hien co.
 
-    Logic:
-        - Cap (SubjectCode, Replacecode) da co + co trong QD moi
-          -> cap nhat no / note / curriculumcode, giu "applied"
-        - Cap da co + KHONG co trong QD moi
-          -> danh dau "expired"
-        - Cap hoan toan moi
-          -> them moi voi "applied"
-
-    Returns:
-        DataFrame da cap nhat, cot chuan 8 truong
+    - Cap da co + co trong QD moi  -> cap nhat no/note/curriculum, giu "applied"
+    - Cap da co + KHONG trong QD   -> "expired"
+    - Cap hoan toan moi             -> them moi "applied"
     """
     COLS = ["SubjectCode", "Replacecode", "curriculumcode",
             "replace", "equivalent", "replace_status", "note", "no"]
@@ -198,7 +229,8 @@ def merge_database(existing_df, new_rows):
         existing_pairs.add(pair)
 
         if pair in new_pairs:
-            matched               = new_df[(new_df["SubjectCode"] == sc) & (new_df["Replacecode"] == rc)].iloc[0]
+            matched               = new_df[(new_df["SubjectCode"] == sc) &
+                                           (new_df["Replacecode"] == rc)].iloc[0]
             row                   = row.copy()
             row["no"]             = matched["no"]
             row["note"]           = matched["note"]
@@ -210,17 +242,15 @@ def merge_database(existing_df, new_rows):
 
         updated_rows.append(row)
 
-    # Them cap hoan toan moi
     for _, new_row in new_df.iterrows():
         pair = (str(new_row["SubjectCode"]).strip(), str(new_row["Replacecode"]).strip())
         if pair not in existing_pairs:
             updated_rows.append(new_row)
 
-    result_df = pd.DataFrame(updated_rows)[COLS].reset_index(drop=True)
-    return result_df
+    return pd.DataFrame(updated_rows)[COLS].reset_index(drop=True)
 
 
-# ── Chay doc lap (khong dung Streamlit) ──────────────────────────────────────
+# ── Chay doc lap ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     INPUT_DIR   = "input/"
     OUTPUT_FILE = "output/Database_Tong_Hop.xlsx"
