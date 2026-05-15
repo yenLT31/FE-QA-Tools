@@ -146,46 +146,35 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text Material Icon + nút sidebar màu xanh ── */
+/* ── Ẩn text lộ + nút đóng/mở sidebar màu xanh ── */
 header[data-testid="stHeader"] {{
     overflow: hidden !important;
 }}
-header[data-testid="stHeader"] button {{
-    overflow: hidden !important;
+[data-testid="collapsedControl"] {{
     font-size: 0px !important;
     color: transparent !important;
-    max-width: 44px !important;
-}}
-header[data-testid="stHeader"] button::after {{
-    content: "»" !important;
-    font-size: 22px !important;
-    color: {T['accent']} !important;
-    font-weight: 800 !important;
-    text-indent: 0 !important;
-    display: block !important;
-}}
-button[data-testid="stBaseButton-headerNoPadding"] {{
     overflow: hidden !important;
+}}
+[data-testid="collapsedControl"] button {{
     font-size: 0px !important;
     color: transparent !important;
-    max-width: 44px !important;
+    overflow: hidden !important;
 }}
-button[data-testid="stBaseButton-headerNoPadding"]::after {{
+[data-testid="collapsedControl"] button::after {{
     content: "»" !important;
-    font-size: 22px !important;
+    font-size: 20px !important;
     color: {T['accent']} !important;
     font-weight: 800 !important;
     display: block !important;
 }}
-button[data-testid="stBaseButton-header"] {{
-    overflow: hidden !important;
+[data-testid="stSidebarCollapseButton"] button {{
     font-size: 0px !important;
     color: transparent !important;
-    max-width: 44px !important;
+    overflow: hidden !important;
 }}
-button[data-testid="stBaseButton-header"]::after {{
+[data-testid="stSidebarCollapseButton"] button::after {{
     content: "«" !important;
-    font-size: 22px !important;
+    font-size: 20px !important;
     color: {T['accent']} !important;
     font-weight: 800 !important;
     display: block !important;
