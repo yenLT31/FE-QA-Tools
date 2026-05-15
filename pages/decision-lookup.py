@@ -19,7 +19,7 @@ spec.loader.exec_module(logic)
 # ============================================================
 st.set_page_config(
     page_title="Decision Lookup | FE QA Tools",
-    page_icon="🔍",
+    page_icon="QA",
     layout="wide",
     initial_sidebar_state="expanded",
 )
