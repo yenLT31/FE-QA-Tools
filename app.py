@@ -146,19 +146,64 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text lộ + nút đóng/mở sidebar màu xanh ── */
-header[data-testid="stHeader"] {{
+/* ── Ẩn text lộ + nút sidebar màu xanh ── */
+.stApp > header {{
     overflow: hidden !important;
 }}
-header[data-testid="stHeader"] button {{
+.stApp > header button {{
     overflow: hidden !important;
-    text-indent: -9999px !important;
+    font-size: 0px !important;
+    color: transparent !important;
+    max-width: 44px !important;
 }}
-header[data-testid="stHeader"] button svg {{
-    text-indent: 0 !important;
+.stApp > header button span {{
+    font-size: 0px !important;
+    visibility: hidden !important;
+    display: none !important;
+}}
+.stApp > header button svg {{
+    visibility: visible !important;
+    display: block !important;
+    stroke: {T['accent']} !important;
+    color: {T['accent']} !important;
+    fill: {T['accent']} !important;
+}}
+.stAppHeader {{
+    overflow: hidden !important;
+}}
+.stAppHeader button {{
+    overflow: hidden !important;
+    font-size: 0px !important;
+    color: transparent !important;
+}}
+.stAppHeader button span {{
+    font-size: 0px !important;
+    visibility: hidden !important;
+    display: none !important;
+}}
+.stAppHeader button svg {{
+    visibility: visible !important;
+    display: block !important;
     stroke: {T['accent']} !important;
     color: {T['accent']} !important;
 }}
+[data-testid="collapsedControl"] {{
+    overflow: hidden !important;
+    font-size: 0px !important;
+    color: transparent !important;
+}}
+[data-testid="collapsedControl"] span {{
+    font-size: 0px !important;
+    visibility: hidden !important;
+    display: none !important;
+}}
+[data-testid="collapsedControl"] svg {{
+    visibility: visible !important;
+    display: block !important;
+    stroke: {T['accent']} !important;
+    color: {T['accent']} !important;
+}}
+
 </style>""", unsafe_allow_html=True)
 
 # ============================================================
