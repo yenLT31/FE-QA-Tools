@@ -16,8 +16,8 @@ for t in TOOLS:
 #  PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="FPT QA Tools",
-    page_icon="🔧",
+    page_title="FE QA Tools",
+    page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -154,7 +154,7 @@ a[data-testid="stPageLink-NavLink"] p {{
 with st.sidebar:
     st.markdown(f"""
     <div style="padding:16px 0 20px;border-bottom:1px solid {T['border']};margin-bottom:20px">
-        <div style="font-size:15px;font-weight:800;color:{T['accent']}">🔧 FPT QA Tools</div>
+        <div style="font-size:15px;font-weight:800;color:{T['accent']}">🔧 FE QA Tools</div>
         <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.9px;
                     text-transform:uppercase;margin-top:3px">QA Department — FE</div>
     </div>
@@ -194,7 +194,7 @@ st.markdown(f"""
             border-bottom:1px solid {T['border']};padding:28px 0 22px;
             margin:-1rem -1rem 0;text-align:center">
     <div style="font-size:11px;color:{T['accent']};font-weight:700;letter-spacing:1.4px;
-                text-transform:uppercase;margin-bottom:10px">🔧 FPT QA Tools</div>
+                text-transform:uppercase;margin-bottom:10px">🔧 FE QA Tools</div>
     <h1 style="font-size:24px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
                margin:0 0 8px;line-height:1.3">
         Hệ sinh thái công cụ
