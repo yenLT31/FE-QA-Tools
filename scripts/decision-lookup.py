@@ -1,15 +1,9 @@
-# scripts/decision-lookup.py
-# ============================================================
-#  LOGIC THUẦN — KHÔNG IMPORT STREAMLIT
-# ============================================================
 import pdfplumber
 import pandas as pd
-import re
 import io
 
 
 def detect_mssv_col(columns):
-    """Trả về index cột MSSV, -1 nếu không tìm thấy."""
     keywords = ["mssv", "ma_sv", "masv", "mã sv", "mã số sinh viên",
                 "student_id", "studentid", "ma so sinh vien"]
     for i, col in enumerate(columns):
@@ -21,11 +15,6 @@ def detect_mssv_col(columns):
 
 
 def search_mssv_in_pdfs(mssv_list, pdf_data_list):
-    """
-    mssv_list : list[str]
-    pdf_data_list : list[dict]  — mỗi dict có {"name": str, "bytes": bytes}
-    Returns : dict keyed by mssv  +  "_errors" key
-    """
     results = {}
     errors = []
 
@@ -67,10 +56,6 @@ def search_mssv_in_pdfs(mssv_list, pdf_data_list):
 
 
 def build_export_data(mssv_list, results):
-    """
-    Tạo 2 DataFrame: df_summary và df_detail.
-    df_detail chứa TẤT CẢ cột từ PDF (row_dict).
-    """
     summary_rows = []
     detail_rows = []
 
@@ -87,12 +72,7 @@ def build_export_data(mssv_list, results):
                 "Danh sách QĐ": ", ".join(files),
             })
             for hit in info["hits"]:
-                row = {
-                    "MSSV": ms,
-                    "Tên QĐ": hit["file"],
-                    "Trang": hit["page"],
-                }
-                # Thêm tất cả cột từ PDF
+                row = {"MSSV": ms, "Tên QĐ": hit["file"], "Trang": hit["page"]}
                 row.update(hit.get("row_dict", {}))
                 detail_rows.append(row)
         else:
@@ -108,13 +88,10 @@ def build_export_data(mssv_list, results):
                 "Trang": "",
             })
 
-    df_summary = pd.DataFrame(summary_rows)
-    df_detail = pd.DataFrame(detail_rows)
-    return df_summary, df_detail
+    return pd.DataFrame(summary_rows), pd.DataFrame(detail_rows)
 
 
 def to_excel_bytes(df_summary, df_detail):
-    """Xuất 2 sheet ra bytes Excel."""
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
         df_summary.to_excel(w, index=False, sheet_name="Tổng hợp")
