@@ -219,6 +219,30 @@ section[data-testid="stMain"] { padding-left: 1rem !important; }
 ::-webkit-scrollbar-track { background: var(--card); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* ── Nút đóng/mở sidebar: ẩn text + hiện icon xanh ── */
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
+    font-size: 0px !important;
+    overflow: hidden !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: inline-block !important;
+}}
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]::after {{
+    content: "»" !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
+}}
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"]::after {{
+    content: "«" !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
+}}
+
 </style>""", unsafe_allow_html=True)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
