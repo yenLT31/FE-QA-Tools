@@ -6,7 +6,7 @@ if "theme" not in st.session_state:
 
 st.set_page_config(
     page_title="Graduation Reviewer | FE QA Tools",
-    page_icon="🎓",
+    page_icon="QA",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
