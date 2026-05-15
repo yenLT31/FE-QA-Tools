@@ -146,38 +146,28 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text lộ + nút đóng/mở sidebar màu xanh ── */
-header[data-testid="stHeader"] {{
-    overflow: hidden !important;
-}}
-[data-testid="collapsedControl"] {{
+/* ── Ẩn text + nút đóng/mở sidebar màu xanh ── */
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"],
+button[data-testid="stCollapseSidebarButton"] [data-testid="stIconMaterial"] {{
     font-size: 0px !important;
-    color: transparent !important;
     overflow: hidden !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: inline-block !important;
 }}
-[data-testid="collapsedControl"] button {{
-    font-size: 0px !important;
-    color: transparent !important;
-    overflow: hidden !important;
-}}
-[data-testid="collapsedControl"] button::after {{
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]::after {{
     content: "»" !important;
     font-size: 20px !important;
-    color: {T['accent']} !important;
     font-weight: 800 !important;
-    display: block !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
 }}
-[data-testid="stSidebarCollapseButton"] button {{
-    font-size: 0px !important;
-    color: transparent !important;
-    overflow: hidden !important;
-}}
-[data-testid="stSidebarCollapseButton"] button::after {{
+button[data-testid="stCollapseSidebarButton"] [data-testid="stIconMaterial"]::after {{
     content: "«" !important;
     font-size: 20px !important;
-    color: {T['accent']} !important;
     font-weight: 800 !important;
-    display: block !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
 }}
 
 </style>""", unsafe_allow_html=True)
