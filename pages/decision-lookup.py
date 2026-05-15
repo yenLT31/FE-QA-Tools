@@ -28,14 +28,16 @@ st.set_page_config(page_title='Decision Lookup', page_icon='🔍', layout='wide'
 # ---------------------------------------------------------------------------
 # Session defaults
 # ---------------------------------------------------------------------------
-for key, val in {
-    'dl_theme'      : 'light',
-    'dl_results'    : None,
-    'dl_mssv_list'  : None,
-    'dl_show_results': False,
+for k, v in {
+    'dl_theme'       : 'light',
+    'dl_results'     : None,
+    'dl_mssv_list'   : None,
+    'dl_active_tab'  : 'upload',   # 'upload' | 'results'
+    'dl_sv_file_name': '',
+    'dl_qd_names'    : [],
 }.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 is_dark = st.session_state['dl_theme'] == 'dark'
 
@@ -45,125 +47,223 @@ surface = '#1e293b' if is_dark else '#ffffff'
 border  = '#334155' if is_dark else '#e2e8f0'
 text    = '#f1f5f9' if is_dark else '#0f172a'
 muted   = '#94a3b8' if is_dark else '#64748b'
+green   = '#10b981'
+red     = '#ef4444'
+blue    = '#3b82f6'
 
 # ---------------------------------------------------------------------------
 # CSS
 # ---------------------------------------------------------------------------
 st.markdown(f"""
 <style>
+/* Base */
 .stApp {{ background-color: {bg} !important; }}
-.block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1100px; }}
-section[data-testid="stSidebar"] > div {{
-    background-color: {surface} !important;
-    border-right: 1px solid {border};
-}}
+.block-container {{ padding: 0 !important; max-width: 100% !important; }}
 
+/* Top bar */
+.top-bar {{
+    background: {surface};
+    border-bottom: 1px solid {border};
+    padding: 0 32px;
+    display: flex; align-items: center;
+    height: 56px; gap: 16px;
+    position: sticky; top: 0; z-index: 100;
+}}
+.top-back {{
+    font-size: 13px; color: {muted}; text-decoration: none;
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    border: none; background: none; padding: 0;
+}}
+.top-back:hover {{ color: {text}; }}
+.top-title {{
+    font-size: 15px; font-weight: 800; color: {text};
+    display: flex; align-items: center; gap: 10px; flex: 1;
+}}
+.live-badge {{
+    font-size: 10px; font-weight: 700;
+    background: {'#14532d' if is_dark else '#dcfce7'};
+    color: {'#4ade80' if is_dark else '#166534'};
+    border: 1px solid {'#166534' if is_dark else '#bbf7d0'};
+    padding: 2px 8px; border-radius: 20px; letter-spacing: .3px;
+}}
+.theme-btns {{ display: flex; gap: 6px; }}
+.tbtn {{
+    width: 36px; height: 32px; border-radius: 8px;
+    border: 1px solid {border}; background: {surface};
+    color: {text}; font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
+}}
+.tbtn.active {{ background: {green}; border-color: {green}; color: white; }}
+
+/* Tab nav */
+.tab-nav {{
+    background: {surface}; border-bottom: 1px solid {border};
+    padding: 0 32px; display: flex; gap: 0;
+}}
+.tnav {{
+    padding: 14px 20px; font-size: 13px; font-weight: 600;
+    color: {muted}; border-bottom: 2px solid transparent;
+    cursor: pointer; transition: all .15s;
+    display: flex; align-items: center; gap: 6px;
+}}
+.tnav.active {{ color: {green}; border-bottom-color: {green}; }}
+.tnav:hover {{ color: {text}; }}
+
+/* Content */
+.content {{ padding: 28px 32px; }}
+
+/* Step */
 .step-badge {{
     display:inline-flex;align-items:center;justify-content:center;
-    width:36px;height:36px;background:#10b981;color:white;
-    font-size:13px;font-weight:700;border-radius:8px;
-    margin-right:12px;flex-shrink:0;
+    width:32px;height:32px;background:{green};color:white;
+    font-size:12px;font-weight:700;border-radius:8px;
+    margin-right:10px;flex-shrink:0;
 }}
-.step-header {{ display:flex;align-items:center;margin-bottom:4px;margin-top:8px; }}
-.step-header h3 {{ margin:0;font-size:18px;font-weight:700; }}
-.step-sub {{ color:{muted};font-size:13px;margin-left:48px;margin-bottom:16px; }}
-.step-divider {{ border:none;border-top:1px solid {border};margin:24px 0; }}
+.step-hdr {{ display:flex;align-items:center;margin-bottom:3px;margin-top:20px; }}
+.step-hdr h3 {{ margin:0;font-size:16px;font-weight:700;color:{text}; }}
+.step-sub {{ font-size:12px;color:{muted};margin-left:42px;margin-bottom:14px; }}
+.divider {{ border:none;border-top:1px solid {border};margin:20px 0; }}
 
-.stat-row {{ display:flex;gap:12px;margin:16px 0;flex-wrap:wrap; }}
+/* Stat cards */
+.stat-row {{ display:flex;gap:14px;margin:20px 0;flex-wrap:wrap; }}
 .stat-card {{
     background:{surface};border:1px solid {border};
-    border-radius:10px;padding:14px 20px;min-width:130px;flex:1;
+    border-radius:12px;padding:18px 22px;flex:1;min-width:140px;
+    border-left: 3px solid {green};
 }}
-.stat-card .val {{ font-size:28px;font-weight:800;color:#10b981;line-height:1; }}
-.stat-card .val.red  {{ color:#ef4444; }}
-.stat-card .val.gray {{ color:{muted}; }}
-.stat-card .lbl {{ font-size:12px;color:{muted};margin-top:4px; }}
+.stat-card.red {{ border-left-color:{red}; }}
+.stat-card.blue {{ border-left-color:{blue}; }}
+.stat-card.gray {{ border-left-color:{muted}; }}
+.stat-val {{ font-size:30px;font-weight:800;color:{green};line-height:1; }}
+.stat-val.red  {{ color:{red}; }}
+.stat-val.gray {{ color:{muted}; }}
+.stat-lbl {{ font-size:11px;color:{muted};margin-top:5px;text-transform:uppercase;letter-spacing:.5px; }}
 
-.sb-label {{
-    font-size:11px;font-weight:700;letter-spacing:.8px;
-    text-transform:uppercase;color:{muted};margin-bottom:6px;margin-top:16px;
-}}
-.col-label {{
-    font-size:11px;font-weight:700;letter-spacing:.6px;
-    text-transform:uppercase;color:{muted};margin-bottom:6px;
+/* Search bar */
+.search-bar {{
+    display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;
 }}
 
-div[data-testid="stButton"] > button {{ border-radius:8px !important;font-weight:600 !important; }}
+/* Col label */
+.col-lbl {{
+    font-size:10px;font-weight:700;letter-spacing:.7px;
+    text-transform:uppercase;color:{muted};margin-bottom:5px;
+}}
+
+/* Streamlit overrides */
+div[data-testid="stButton"] > button {{
+    border-radius:8px !important; font-weight:600 !important;
+}}
 div[data-testid="stButton"] > button[kind="primary"] {{
-    background-color:#10b981 !important;border:none !important;color:white !important;
+    background-color:{green} !important; border:none !important; color:white !important;
 }}
+div[data-testid="stFileUploader"] {{
+    background:{surface} !important;
+    border:1.5px dashed {border} !important;
+    border-radius:10px !important; padding:6px !important;
+}}
+.stTextInput > div > div > input {{
+    background:{surface} !important;
+    border-color:{border} !important;
+    color:{text} !important; border-radius:8px !important;
+}}
+.stSelectbox > div > div {{
+    background:{surface} !important;
+    border-color:{border} !important; color:{text} !important;
+}}
+.stRadio > div {{ gap:6px; }}
+.stDataFrame {{ border-radius:10px !important; overflow:hidden; }}
+div[data-testid="stMetric"] label {{ color:{muted} !important; font-size:11px !important; }}
 </style>
 """, unsafe_allow_html=True)
 
+
 # ---------------------------------------------------------------------------
-# Sidebar
+# TOP BAR
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown('<div style="font-size:18px;font-weight:800">🔍 Decision Lookup</div>', unsafe_allow_html=True)
-    st.caption('Tra cứu MSSV trong các Quyết định PDF')
-    st.divider()
+st.markdown(f"""
+<div class="top-bar">
+    <span style="font-size:13px;color:{muted}">← Trang chủ</span>
+    <div class="top-title">
+        🔍 Decision Lookup
+        <span class="live-badge">● LIVE</span>
+    </div>
+    <div class="theme-btns">
+        <button class="tbtn {'active' if not is_dark else ''}" title="Sáng">☀️</button>
+        <button class="tbtn {'active' if is_dark else ''}" title="Tối">🌙</button>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-    st.markdown('<div class="sb-label">GIAO DIỆN</div>', unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button('☀️ Sáng', use_container_width=True,
-                     type='primary' if not is_dark else 'secondary'):
-            st.session_state['dl_theme'] = 'light'
-            st.rerun()
-    with c2:
-        if st.button('🌙 Tối', use_container_width=True,
-                     type='primary' if is_dark else 'secondary'):
-            st.session_state['dl_theme'] = 'dark'
-            st.rerun()
+# Theme toggle (dùng Streamlit buttons ẩn để bắt click)
+_c1, _c2, _c3 = st.columns([8, 1, 1])
+with _c2:
+    if st.button('☀️', key='btn_light', help='Giao diện sáng'):
+        st.session_state['dl_theme'] = 'light'
+        st.rerun()
+with _c3:
+    if st.button('🌙', key='btn_dark', help='Giao diện tối'):
+        st.session_state['dl_theme'] = 'dark'
+        st.rerun()
 
-    st.divider()
-    st.markdown('<div class="sb-label">CÔNG CỤ</div>', unsafe_allow_html=True)
-    debug_mode      = st.checkbox('🛠 Debug pdfplumber', value=False)
-    show_all_tables = st.checkbox('📋 Hiện tất cả bảng', value=False)
+# ---------------------------------------------------------------------------
+# TAB NAV
+# ---------------------------------------------------------------------------
+active_tab = st.session_state['dl_active_tab']
+has_results = bool(st.session_state.get('dl_results'))
 
-    # Nút quay lại (chỉ hiện khi đang xem kết quả)
-    if st.session_state['dl_show_results']:
-        st.divider()
-        if st.button('← Tra cứu mới', use_container_width=True):
-            st.session_state['dl_show_results'] = False
-            st.rerun()
+st.markdown(f"""
+<div class="tab-nav">
+    <div class="tnav {'active' if active_tab == 'upload' else ''}">📂 Cấu hình</div>
+    <div class="tnav {'active' if active_tab == 'results' else ''}" style="{'opacity:.4;cursor:default;' if not has_results else ''}">
+        📊 Kết quả {'(' + str(len(st.session_state.get('dl_mssv_list') or [])) + ')' if has_results else ''}
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown('<div class="sb-label">HƯỚNG DẪN</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:12px;color:{muted};line-height:2">1. Upload file Excel MSSV<br>2. Upload file PDF QĐ<br>3. Nhấn <b>Bắt đầu tra cứu</b><br>4. Xem bảng kết quả & xuất Excel</div>', unsafe_allow_html=True)
+tab_cols = st.columns([1, 1, 8])
+with tab_cols[0]:
+    if st.button('📂 Cấu hình', key='nav_upload', use_container_width=True):
+        st.session_state['dl_active_tab'] = 'upload'
+        st.rerun()
+with tab_cols[1]:
+    if st.button('📊 Kết quả', key='nav_results',
+                 disabled=not has_results, use_container_width=True):
+        st.session_state['dl_active_tab'] = 'results'
+        st.rerun()
 
+st.markdown('<div class="content">', unsafe_allow_html=True)
 
 # ===========================================================================
-# MÀN 1 — UPLOAD & CẤU HÌNH
+# TAB: CẤU HÌNH
 # ===========================================================================
-if not st.session_state['dl_show_results']:
+if active_tab == 'upload':
 
-    st.markdown('<h2 style="margin-bottom:4px">🔍 Decision Lookup</h2>', unsafe_allow_html=True)
-    st.markdown(f'<p style="color:{muted};margin-top:0;margin-bottom:28px">Kiểm tra MSSV có xuất hiện trong các Quyết định PDF và trả về vị trí chính xác</p>', unsafe_allow_html=True)
-
-    # ── Bước 01 — Upload ──
-    st.markdown("""
-    <div class="step-header"><span class="step-badge">01</span><h3>Tải lên file</h3></div>
+    # Bước 01
+    st.markdown(f"""
+    <div class="step-hdr"><span class="step-badge">01</span><h3>Tải lên file</h3></div>
     <div class="step-sub">Upload file danh sách MSSV và các file Quyết định PDF</div>
     """, unsafe_allow_html=True)
 
     col1, col2 = st.columns([1, 1.4])
     with col1:
-        st.markdown('<div class="col-label">📄 FILE EXCEL — DANH SÁCH MSSV</div>', unsafe_allow_html=True)
-        sv_file = st.file_uploader('sv', type=['xlsx', 'xls'], key='sv_upload', label_visibility='collapsed')
+        st.markdown('<div class="col-lbl">📄 FILE EXCEL — DANH SÁCH MSSV</div>', unsafe_allow_html=True)
+        sv_file = st.file_uploader('sv', type=['xlsx','xls'], key='sv_upload', label_visibility='collapsed')
     with col2:
-        st.markdown('<div class="col-label">📁 FILE PDF QUYẾT ĐỊNH</div>', unsafe_allow_html=True)
+        st.markdown('<div class="col-lbl">📁 FILE PDF QUYẾT ĐỊNH</div>', unsafe_allow_html=True)
         qd_files = st.file_uploader('qd', type=['pdf'], accept_multiple_files=True,
                                     key='qd_upload', label_visibility='collapsed')
 
-    # ── Bước 02 — Chọn cột MSSV ──
+    # Bước 02
     mssv_list   = []
     mssv_col_ok = False
+    sel_col     = None
 
     if sv_file:
-        st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
-        st.markdown("""
-        <div class="step-header"><span class="step-badge">02</span><h3>Xác nhận cột MSSV</h3></div>
+        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="step-hdr"><span class="step-badge">02</span><h3>Xác nhận cột MSSV</h3></div>
         <div class="step-sub">Chọn đúng cột chứa MSSV / RollNumber trong file Excel</div>
         """, unsafe_allow_html=True)
 
@@ -173,29 +273,28 @@ if not st.session_state['dl_show_results']:
             cols = df_sv.columns.tolist()
             auto_idx = dl.detect_mssv_col(cols)
 
-            ca, cb = st.columns([1, 2])
-            with ca:
+            c_sel, c_info = st.columns([1, 2])
+            with c_sel:
                 sel_col = st.selectbox('Cột MSSV', cols,
                                        index=auto_idx if auto_idx >= 0 else 0,
                                        key='mssv_col_sel')
-                if auto_idx >= 0:
-                    st.success(f'✅ Tự động phát hiện: **{sel_col}**')
-                else:
-                    st.warning('⚠️ Vui lòng chọn đúng cột MSSV')
-            with cb:
+            with c_info:
                 raw = df_sv[sel_col].dropna().astype(str).str.strip().tolist()
                 mssv_list = [m for m in raw if m and m.lower() != 'nan']
-                st.markdown(f'**Xem trước** — {len(mssv_list)} MSSV')
-                st.dataframe(df_sv[[sel_col]].head(6), use_container_width=True, hide_index=True)
+                if auto_idx >= 0:
+                    st.success(f'✅ Tự động phát hiện cột **{sel_col}** — {len(mssv_list)} MSSV')
+                else:
+                    st.warning(f'⚠️ Đã chọn cột **{sel_col}** — {len(mssv_list)} MSSV')
+
             mssv_col_ok = bool(mssv_list)
         except Exception as e:
             st.error(f'Lỗi đọc file Excel: {e}')
 
-    # ── Bước 03 — Bắt đầu ──
-    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="step-header"><span class="step-badge">03</span><h3>Bắt đầu tra cứu</h3></div>
-    <div class="step-sub">Hệ thống đọc từng file PDF, tìm MSSV trong bảng dữ liệu rồi chuyển sang màn kết quả</div>
+    # Bước 03
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="step-hdr"><span class="step-badge">03</span><h3>Bắt đầu tra cứu</h3></div>
+    <div class="step-sub">Hệ thống đọc từng PDF, tìm MSSV trong bảng dữ liệu rồi chuyển sang tab Kết quả</div>
     """, unsafe_allow_html=True)
 
     cs, cq = st.columns(2)
@@ -210,7 +309,8 @@ if not st.session_state['dl_show_results']:
         if qd_files:
             st.success(f'✅ {len(qd_files)} file PDF')
             for f in qd_files:
-                st.markdown(f'<div style="font-size:12px;color:{muted}">📄 {f.name}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:12px;color:{muted}">📄 {f.name}</div>',
+                            unsafe_allow_html=True)
         else:
             st.info('📁 Chưa upload file PDF')
 
@@ -223,26 +323,7 @@ if not st.session_state['dl_show_results']:
         if not qd_files:                  parts.append('file PDF Quyết định')
         st.caption(f'⚠️ Cần upload: {" và ".join(parts)}')
 
-    # ── Xử lý ──
     if run_btn and btn_ready:
-        if debug_mode:
-            with st.expander('🛠 Debug pdfplumber', expanded=True):
-                import pdfplumber, io as _io
-                for f in qd_files:
-                    f.seek(0)
-                    st.markdown(f'**{f.name}**')
-                    try:
-                        with pdfplumber.open(_io.BytesIO(f.read())) as pdf:
-                            for pi, page in enumerate(pdf.pages, 1):
-                                tables = page.extract_tables()
-                                if tables:
-                                    st.markdown(f'Trang {pi}: {len(tables)} bảng')
-                                    if show_all_tables:
-                                        for ti, t in enumerate(tables):
-                                            st.write(f'Bảng {ti+1}:', t[:5])
-                    except Exception as e:
-                        st.error(str(e))
-
         pdf_file_list = []
         for f in qd_files:
             f.seek(0)
@@ -266,125 +347,129 @@ if not st.session_state['dl_show_results']:
                     all_results[mssv]['results'].extend(data['results'])
 
         prog.progress(100, text='✅ Hoàn thành!')
-
-        st.session_state['dl_results']     = all_results
-        st.session_state['dl_mssv_list']   = mssv_list
-        st.session_state['dl_show_results'] = True
+        st.session_state['dl_results']    = all_results
+        st.session_state['dl_mssv_list']  = mssv_list
+        st.session_state['dl_qd_names']   = [f['name'] for f in pdf_file_list]
+        st.session_state['dl_active_tab'] = 'results'
         st.rerun()
 
 
 # ===========================================================================
-# MÀN 2 — KẾT QUẢ
+# TAB: KẾT QUẢ
 # ===========================================================================
-else:
-    results   = st.session_state['dl_results']   or {}
+elif active_tab == 'results' and has_results:
+    results   = st.session_state['dl_results']
     mssv_list = st.session_state['dl_mssv_list'] or []
 
     found_list = [m for m in mssv_list if results.get(m, {}).get('found')]
     miss_list  = [m for m in mssv_list if not results.get(m, {}).get('found')]
     errors     = results.get('_errors', [])
 
-    # ── Header ──
-    col_h, col_btn = st.columns([3, 1])
-    with col_h:
-        st.markdown('<h2 style="margin-bottom:4px">📊 Kết quả tra cứu</h2>', unsafe_allow_html=True)
-        st.markdown(f'<p style="color:{muted};margin-top:0">Kết quả tìm kiếm MSSV trong các Quyết định PDF</p>', unsafe_allow_html=True)
-    with col_btn:
-        if st.button('← Tra cứu mới', use_container_width=True):
-            st.session_state['dl_show_results'] = False
-            st.rerun()
-
-    # ── Stat cards ──
+    # Stat cards
     st.markdown(f"""
     <div class="stat-row">
-        <div class="stat-card"><div class="val gray">{len(mssv_list)}</div><div class="lbl">Tổng MSSV</div></div>
-        <div class="stat-card"><div class="val">{len(found_list)}</div><div class="lbl">Tìm thấy trong QĐ</div></div>
-        <div class="stat-card"><div class="val red">{len(miss_list)}</div><div class="lbl">Không có trong QĐ</div></div>
+        <div class="stat-card gray">
+            <div class="stat-val gray">{len(mssv_list)}</div>
+            <div class="stat-lbl">Tổng MSSV</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-val">{len(found_list)}</div>
+            <div class="stat-lbl">Tìm thấy trong QĐ</div>
+        </div>
+        <div class="stat-card red">
+            <div class="stat-val red">{len(miss_list)}</div>
+            <div class="stat-lbl">Không có trong QĐ</div>
+        </div>
+        <div class="stat-card blue">
+            <div class="stat-val" style="color:{blue}">{len(st.session_state.get('dl_qd_names', []))}</div>
+            <div class="stat-lbl">File QĐ đã tra</div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
     for e in errors:
         st.warning(f'⚠️ Lỗi đọc **{e["file"]}**: {e["error"]}')
 
-    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
-
-    # ── Build bảng chi tiết (full row data) ──
+    # Build detail dataframe
     def build_detail_df(subset):
         rows = []
+        stt  = 1
         for m in subset:
             r = results.get(m, {'found': False, 'results': []})
             if not r['found']:
-                rows.append({
-                    'MSSV'       : m,
-                    'Trạng thái' : '❌ Không tìm thấy',
-                    'Tên QĐ'     : '—',
-                    'Trang'      : '—',
-                    'STT'        : '—',
-                })
+                rows.append({'STT': stt, 'MSSV': m, 'Trạng thái': '❌ Không tìm thấy',
+                             'Tên QĐ': '—', 'Trang': '—', 'STT trong QĐ': '—'})
+                stt += 1
             else:
                 for hit in r['results']:
-                    row = {
-                        'MSSV'       : m,
-                        'Trạng thái' : '✅ Có',
-                        'Tên QĐ'     : hit['qd_name'],
-                        'Trang'      : f'Trang {hit["page"]}',
-                        'STT'        : hit['stt'] or '—',
-                    }
-                    # Thêm toàn bộ dữ liệu từ bảng QĐ (bỏ cột MSSV vì đã có)
+                    row = {'STT': stt, 'MSSV': m, 'Trạng thái': '✅ Có',
+                           'Tên QĐ': hit['qd_name'],
+                           'Trang': f'Trang {hit["page"]}',
+                           'STT trong QĐ': hit['stt'] or '—'}
                     for k, v in hit['row_dict'].items():
-                        if k and k.strip() and k not in row:
-                            row[k] = v
+                        col_norm = str(k).strip()
+                        if col_norm and col_norm not in row and col_norm.upper() not in ['MSSV','ROLLNUMBER','ROLL NUMBER','MÃ SV','MÃ SINH VIÊN','STT','TT']:
+                            row[col_norm] = v
                     rows.append(row)
+                    stt += 1
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-    # ── Filter bar ──
-    fc, fq = st.columns([1, 3])
-    with fc:
-        filter_mode = st.radio('Lọc', ['Tất cả', '✅ Tìm thấy', '❌ Không có'],
-                               horizontal=False, key='filter_mode', label_visibility='collapsed')
-    with fq:
-        search_q = st.text_input('🔍 Tìm kiếm MSSV, Họ tên, QĐ...',
-                                 placeholder='Nhập để lọc bảng...', key='search_q',
-                                 label_visibility='collapsed')
+    # Filter tabs (dùng radio ẩn label)
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # Chọn subset theo filter
-    if filter_mode == '✅ Tìm thấy':
+    filter_col, search_col = st.columns([2, 5])
+    with filter_col:
+        filter_mode = st.radio(
+            'filter', ['📋 Tất cả', '✅ Tìm thấy', '❌ Không có'],
+            horizontal=True, key='dl_filter', label_visibility='collapsed'
+        )
+    with search_col:
+        search_q = st.text_input(
+            'search', placeholder='🔍 Tìm MSSV, Họ tên, Tên QĐ...',
+            key='dl_search', label_visibility='collapsed'
+        )
+
+    # Subset
+    if 'Tìm thấy' in filter_mode:
         subset = found_list
-    elif filter_mode == '❌ Không có':
+    elif 'Không có' in filter_mode:
         subset = miss_list
     else:
         subset = mssv_list
 
-    df_detail = build_detail_df(subset)
+    df = build_detail_df(subset)
 
-    # Lọc theo từ khoá
-    if search_q and not df_detail.empty:
-        q = search_q.lower()
-        mask = df_detail.apply(
-            lambda col: col.astype(str).str.lower().str.contains(q, na=False)
-        ).any(axis=1)
-        df_detail = df_detail[mask]
+    # Apply search
+    if search_q.strip() and not df.empty:
+        q = search_q.strip().lower()
+        mask = df.apply(lambda col: col.astype(str).str.lower().str.contains(q, na=False)).any(axis=1)
+        df = df[mask]
 
-    # Hiển thị bảng
-    if df_detail.empty:
+    # Summary bar
+    total_disp = len(df)
+    st.markdown(
+        f'<div style="background:{"#1e3a2e" if is_dark else "#f0fdf4"};border:1px solid {"#166534" if is_dark else "#bbf7d0"};border-radius:8px;padding:10px 16px;font-size:13px;font-weight:600;color:{"#4ade80" if is_dark else "#166534"};margin-bottom:12px">'
+        f'Tổng: {len(mssv_list)} MSSV | ✅ Tìm thấy: {len(found_list)} | ❌ Không có: {len(miss_list)} | Đang hiển thị: {total_disp} dòng'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+    # Table
+    if df.empty:
         st.info('Không có kết quả phù hợp.')
     else:
-        st.markdown(f'<div style="font-size:12px;color:{muted};margin-bottom:6px">{len(df_detail)} dòng</div>', unsafe_allow_html=True)
-        st.dataframe(df_detail, use_container_width=True, hide_index=True, height=500)
+        st.dataframe(df, use_container_width=True, hide_index=True, height=520)
 
-    # ── Xuất Excel ──
-    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="step-header"><span class="step-badge">05</span><h3>Xuất kết quả</h3></div>
-    <div class="step-sub">File Excel gồm 2 sheet: Tổng hợp và Chi tiết đầy đủ thông tin từ QĐ</div>
-    """, unsafe_allow_html=True)
-
-    df_summary, df_exp_detail = dl.build_export_data(mssv_list, results)
-    excel_bytes = dl.to_excel_bytes(df_summary, df_exp_detail)
+    # Export
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    df_summary, df_detail_exp = dl.build_export_data(mssv_list, results)
+    excel_bytes = dl.to_excel_bytes(df_summary, df_detail_exp)
     st.download_button(
-        label='⬇️ Tải file Excel kết quả',
+        label='⬇️ Xuất file Excel kết quả',
         data=excel_bytes,
         file_name='decision_lookup_result.xlsx',
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         use_container_width=True,
     )
+
+st.markdown('</div>', unsafe_allow_html=True)
