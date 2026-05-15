@@ -198,7 +198,7 @@ st.markdown(f"""
     <h1 style="font-size:24px;font-weight:800;color:{T['text']};letter-spacing:-.8px;
                margin:0 0 8px;line-height:1.3">
         Hệ sinh thái công cụ
-        <span style="color:{T['accent']}">Đảm bảo chất lượng — FE</span></h1>
+        <span style="color:{T['accent']}"> Đảm bảo chất lượng — FE</span></h1>
     <p style="color:{T['muted']};font-size:13px;margin:0 auto;max-width:400px;line-height:1.6">
         Chọn công cụ bên dưới để bắt đầu</p>
 </div>
