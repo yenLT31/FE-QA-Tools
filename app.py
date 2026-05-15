@@ -300,12 +300,17 @@ constellation_html = f"""
             if (h) h.style.background = 'radial-gradient(circle, ' + T.accent + '15 0%, transparent 70%)';
         }});
 
-        // ★ CLICK → navigate
+        // ★ CLICK → navigate (works inside Streamlit iframe)
         if (isLive) {{
             node.addEventListener('click', () => {{
-                // Streamlit navigation: thay đổi URL path
-                const pageName = t.id;  // e.g. "graduation-reviewer"
-                window.parent.location.href = '/' + pageName;
+                const pageName = t.id;
+                // Tạo thẻ <a> ẩn để thoát iframe
+                const a = document.createElement('a');
+                a.href = '/' + pageName;
+                a.target = '_top';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
             }});
         }}
 
