@@ -46,6 +46,14 @@ TOOLS = [
         page="pages/replacecode-manager.py",
         uses=80,
     ),
+    dict(
+        id="decision-lookup",
+        name="Decision Lookup",
+        desc="Quản lý và cập nhật môn thay thế / tương đương từ Quyết định PDF.",
+        icon="🔍", status="live",
+        page="pages/decision-lookup.py",
+        uses=80,
+    ),
     # Thêm tool mới vào đây:
     # dict(id="new-tool", name="Tool mới", desc="...", icon="📈",
     #      status="coming", page="pages/new-tool.py", uses=0),
