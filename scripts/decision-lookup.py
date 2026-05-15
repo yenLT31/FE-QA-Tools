@@ -1,305 +1,390 @@
 """
-scripts/decision-lookup.py
-Logic thuần túy — không import streamlit
+pages/decision-lookup.py
+Giao diện Streamlit — Decision Lookup 🔍
 """
 
-import pdfplumber
+import streamlit as st
 import pandas as pd
-import re
-import io
 from pathlib import Path
+import importlib.util
 
 # ---------------------------------------------------------------------------
-# Từ khoá nhận diện cột MSSV / RollNumber
+# Import script logic
 # ---------------------------------------------------------------------------
-MSSV_KEYWORDS = [
-    'mssv', 'rollnumber', 'roll number', 'roll', 'mã sv',
-    'mã sinh viên', 'mã số sv', 'mã số sinh viên',
-    'student id', 'studentid', 'mã hs', 'mã học sinh',
-    'mã số hs', 'mã', 'id'
-]
+def load_script():
+    script_path = Path(__file__).parent.parent / 'scripts' / 'decision-lookup.py'
+    spec = importlib.util.spec_from_file_location('decision_lookup', script_path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-STT_KEYWORDS = ['stt', 'tt', 'số tt', 'số thứ tự', 'no', 'no.', 'tт']
-
-
-# ---------------------------------------------------------------------------
-# Nhận diện tên QĐ
-# ---------------------------------------------------------------------------
-def get_qd_name(filename: str, pdf_bytes: bytes = None) -> str:
-    """
-    Lấy tên QĐ: ưu tiên tên file → fallback đọc nội dung trang 1.
-    """
-    stem = Path(filename).stem
-
-    # Pattern từ tên file
-    file_patterns = [
-        r'[Qq][Đđd][-_\s]?(\d{2,4})',
-        r'[Qq]uyet[-_\s]?[Dd]inh[-_\s]?(\d{2,4})',
-        r'[-_](\d{2,4})[-_]',
-        r'(\d{2,4})',
-    ]
-    for pat in file_patterns:
-        m = re.search(pat, stem)
-        if m:
-            return f"QĐ {m.group(1)}"
-
-    # Fallback: quét trang 1 của PDF
-    if pdf_bytes:
-        try:
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                if pdf.pages:
-                    text = pdf.pages[0].extract_text() or ''
-                    content_patterns = [
-                        r'[Qq]uyết\s+[Đđ]ịnh\s+[Ss]ố[:\s]+(\d+[/\w-]*)',
-                        r'[Qq][Đđ]\s*[Ss]ố[:\s]+(\d+[/\w-]*)',
-                        r'[Ss]ố[:\s]+(\d{2,4}/[Qq][Đđ]-\w+)',
-                    ]
-                    for pat in content_patterns:
-                        m = re.search(pat, text)
-                        if m:
-                            return f"QĐ {m.group(1)}"
-        except Exception:
-            pass
-
-    return stem  # fallback cuối cùng
-
+dl = load_script()
 
 # ---------------------------------------------------------------------------
-# Detect cột MSSV
+# Page config
 # ---------------------------------------------------------------------------
-def _normalize(s: str) -> str:
-    s = str(s).lower().strip()
-    s = s.replace('đ', 'd').replace('ắ', 'a').replace('ă', 'a')
-    s = s.replace('ê', 'e').replace('ố', 'o').replace('ố', 'o')
-    s = re.sub(r'\s+', '', s)
-    return s
-
-
-def detect_mssv_col(headers: list) -> int:
-    """Trả về index cột MSSV, -1 nếu không tìm thấy."""
-    if not headers:
-        return -1
-    for i, h in enumerate(headers):
-        if h is None:
-            continue
-        h_norm = _normalize(str(h))
-        for kw in MSSV_KEYWORDS:
-            kw_norm = _normalize(kw)
-            if kw_norm == h_norm or (len(kw_norm) > 3 and kw_norm in h_norm):
-                return i
-    return -1
-
-
-def detect_stt_col(headers: list) -> int:
-    """Trả về index cột STT, -1 nếu không tìm thấy."""
-    if not headers:
-        return -1
-    for i, h in enumerate(headers):
-        if h is None:
-            continue
-        h_norm = _normalize(str(h))
-        for kw in STT_KEYWORDS:
-            if _normalize(kw) == h_norm:
-                return i
-    return -1
-
+st.set_page_config(page_title='Decision Lookup', page_icon='🔍', layout='wide')
 
 # ---------------------------------------------------------------------------
-# Gộp ô xuống dòng
+# Session defaults
 # ---------------------------------------------------------------------------
-def merge_wrapped_rows(rows: list, mssv_col: int) -> list:
-    """
-    Dòng bị xuống hàng trong PDF thường có ô MSSV trống.
-    Hàm này gộp các dòng đó vào dòng trước.
-    """
-    if not rows or mssv_col < 0:
-        return rows
+for key, val in {
+    'dl_theme'      : 'light',
+    'dl_results'    : None,
+    'dl_mssv_list'  : None,
+    'dl_show_results': False,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-    merged = []
-    for raw_row in rows:
-        if not raw_row:
-            continue
-        row = [str(c).strip() if c is not None else '' for c in raw_row]
+is_dark = st.session_state['dl_theme'] == 'dark'
 
-        mssv_val = row[mssv_col] if mssv_col < len(row) else ''
-
-        # Dòng tiếp nối: MSSV trống và có dòng trước
-        if not mssv_val and merged:
-            prev = merged[-1]
-            for i in range(max(len(prev), len(row))):
-                if i < len(row) and i < len(prev):
-                    addon = row[i]
-                    if addon:
-                        prev[i] = (prev[i] + ' ' + addon).strip()
-                elif i < len(row):
-                    prev.append(row[i])
-        else:
-            merged.append(list(row))
-
-    return merged
-
+# Color tokens
+bg      = '#0f172a' if is_dark else '#f8fafc'
+surface = '#1e293b' if is_dark else '#ffffff'
+border  = '#334155' if is_dark else '#e2e8f0'
+text    = '#f1f5f9' if is_dark else '#0f172a'
+muted   = '#94a3b8' if is_dark else '#64748b'
 
 # ---------------------------------------------------------------------------
-# Kiểm tra MSSV có hợp lệ không (chuỗi chữ + số liền nhau)
+# CSS
 # ---------------------------------------------------------------------------
-MSSV_PATTERN = re.compile(r'^[A-Za-z]{1,4}\d{4,10}$')
+st.markdown(f"""
+<style>
+.stApp {{ background-color: {bg} !important; }}
+.block-container {{ padding-top: 2rem; padding-bottom: 3rem; max-width: 1100px; }}
+section[data-testid="stSidebar"] > div {{
+    background-color: {surface} !important;
+    border-right: 1px solid {border};
+}}
 
+.step-badge {{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:36px;height:36px;background:#10b981;color:white;
+    font-size:13px;font-weight:700;border-radius:8px;
+    margin-right:12px;flex-shrink:0;
+}}
+.step-header {{ display:flex;align-items:center;margin-bottom:4px;margin-top:8px; }}
+.step-header h3 {{ margin:0;font-size:18px;font-weight:700; }}
+.step-sub {{ color:{muted};font-size:13px;margin-left:48px;margin-bottom:16px; }}
+.step-divider {{ border:none;border-top:1px solid {border};margin:24px 0; }}
 
-def looks_like_mssv(val: str) -> bool:
-    return bool(MSSV_PATTERN.match(val.strip()))
+.stat-row {{ display:flex;gap:12px;margin:16px 0;flex-wrap:wrap; }}
+.stat-card {{
+    background:{surface};border:1px solid {border};
+    border-radius:10px;padding:14px 20px;min-width:130px;flex:1;
+}}
+.stat-card .val {{ font-size:28px;font-weight:800;color:#10b981;line-height:1; }}
+.stat-card .val.red  {{ color:#ef4444; }}
+.stat-card .val.gray {{ color:{muted}; }}
+.stat-card .lbl {{ font-size:12px;color:{muted};margin-top:4px; }}
 
+.sb-label {{
+    font-size:11px;font-weight:700;letter-spacing:.8px;
+    text-transform:uppercase;color:{muted};margin-bottom:6px;margin-top:16px;
+}}
+.col-label {{
+    font-size:11px;font-weight:700;letter-spacing:.6px;
+    text-transform:uppercase;color:{muted};margin-bottom:6px;
+}}
+
+div[data-testid="stButton"] > button {{ border-radius:8px !important;font-weight:600 !important; }}
+div[data-testid="stButton"] > button[kind="primary"] {{
+    background-color:#10b981 !important;border:none !important;color:white !important;
+}}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Hàm tìm kiếm chính
+# Sidebar
 # ---------------------------------------------------------------------------
-def search_mssv_in_pdfs(mssv_list: list, pdf_files: list) -> dict:
-    """
-    Tìm kiếm MSSV trong danh sách PDF.
+with st.sidebar:
+    st.markdown('<div style="font-size:18px;font-weight:800">🔍 Decision Lookup</div>', unsafe_allow_html=True)
+    st.caption('Tra cứu MSSV trong các Quyết định PDF')
+    st.divider()
 
-    Args:
-        mssv_list : list[str] — danh sách MSSV cần tra
-        pdf_files : list[dict] — [{'name': str, 'bytes': bytes}]
+    st.markdown('<div class="sb-label">GIAO DIỆN</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button('☀️ Sáng', use_container_width=True,
+                     type='primary' if not is_dark else 'secondary'):
+            st.session_state['dl_theme'] = 'light'
+            st.rerun()
+    with c2:
+        if st.button('🌙 Tối', use_container_width=True,
+                     type='primary' if is_dark else 'secondary'):
+            st.session_state['dl_theme'] = 'dark'
+            st.rerun()
 
-    Returns:
-        dict {
-            mssv: {
-                'found': bool,
-                'results': [{
-                    'qd_name': str,
-                    'page'   : int,
-                    'stt'    : str,
-                    'headers': list[str],
-                    'row'    : list[str],
-                    'row_dict': dict
-                }]
-            },
-            '_errors': [{'file': str, 'error': str}]
-        }
-    """
-    results = {m.strip(): {'found': False, 'results': []} for m in mssv_list}
-    mssv_upper_map = {m.strip().upper(): m.strip() for m in mssv_list}
-    errors = []
+    st.divider()
+    st.markdown('<div class="sb-label">CÔNG CỤ</div>', unsafe_allow_html=True)
+    debug_mode      = st.checkbox('🛠 Debug pdfplumber', value=False)
+    show_all_tables = st.checkbox('📋 Hiện tất cả bảng', value=False)
 
-    for pdf_file in pdf_files:
-        fname   = pdf_file['name']
-        fbytes  = pdf_file['bytes']
-        qd_name = get_qd_name(fname, fbytes)
+    # Nút quay lại (chỉ hiện khi đang xem kết quả)
+    if st.session_state['dl_show_results']:
+        st.divider()
+        if st.button('← Tra cứu mới', use_container_width=True):
+            st.session_state['dl_show_results'] = False
+            st.rerun()
+
+    st.divider()
+    st.markdown('<div class="sb-label">HƯỚNG DẪN</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:12px;color:{muted};line-height:2">1. Upload file Excel MSSV<br>2. Upload file PDF QĐ<br>3. Nhấn <b>Bắt đầu tra cứu</b><br>4. Xem bảng kết quả & xuất Excel</div>', unsafe_allow_html=True)
+
+
+# ===========================================================================
+# MÀN 1 — UPLOAD & CẤU HÌNH
+# ===========================================================================
+if not st.session_state['dl_show_results']:
+
+    st.markdown('<h2 style="margin-bottom:4px">🔍 Decision Lookup</h2>', unsafe_allow_html=True)
+    st.markdown(f'<p style="color:{muted};margin-top:0;margin-bottom:28px">Kiểm tra MSSV có xuất hiện trong các Quyết định PDF và trả về vị trí chính xác</p>', unsafe_allow_html=True)
+
+    # ── Bước 01 — Upload ──
+    st.markdown("""
+    <div class="step-header"><span class="step-badge">01</span><h3>Tải lên file</h3></div>
+    <div class="step-sub">Upload file danh sách MSSV và các file Quyết định PDF</div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns([1, 1.4])
+    with col1:
+        st.markdown('<div class="col-label">📄 FILE EXCEL — DANH SÁCH MSSV</div>', unsafe_allow_html=True)
+        sv_file = st.file_uploader('sv', type=['xlsx', 'xls'], key='sv_upload', label_visibility='collapsed')
+    with col2:
+        st.markdown('<div class="col-label">📁 FILE PDF QUYẾT ĐỊNH</div>', unsafe_allow_html=True)
+        qd_files = st.file_uploader('qd', type=['pdf'], accept_multiple_files=True,
+                                    key='qd_upload', label_visibility='collapsed')
+
+    # ── Bước 02 — Chọn cột MSSV ──
+    mssv_list   = []
+    mssv_col_ok = False
+
+    if sv_file:
+        st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="step-header"><span class="step-badge">02</span><h3>Xác nhận cột MSSV</h3></div>
+        <div class="step-sub">Chọn đúng cột chứa MSSV / RollNumber trong file Excel</div>
+        """, unsafe_allow_html=True)
 
         try:
-            with pdfplumber.open(io.BytesIO(fbytes)) as pdf:
-                for page_num, page in enumerate(pdf.pages, start=1):
-                    tables = page.extract_tables()
-                    if not tables:
-                        continue
+            df_sv = pd.read_excel(sv_file, dtype=str)
+            df_sv.columns = [str(c).strip() for c in df_sv.columns]
+            cols = df_sv.columns.tolist()
+            auto_idx = dl.detect_mssv_col(cols)
 
-                    for table in tables:
-                        if not table or len(table) < 2:
-                            continue
-
-                        # Hàng đầu = header
-                        raw_headers = table[0] or []
-                        headers = [str(h).strip() if h else '' for h in raw_headers]
-                        mssv_col = detect_mssv_col(headers)
-                        stt_col  = detect_stt_col(headers)
-
-                        if mssv_col < 0:
-                            continue
-
-                        data_rows = merge_wrapped_rows(table[1:], mssv_col)
-
-                        for row in data_rows:
-                            if not row or mssv_col >= len(row):
-                                continue
-
-                            cell = str(row[mssv_col]).strip()
-                            cell_upper = cell.upper()
-
-                            if cell_upper not in mssv_upper_map:
-                                continue
-
-                            original = mssv_upper_map[cell_upper]
-
-                            # STT
-                            stt = ''
-                            if stt_col >= 0 and stt_col < len(row):
-                                stt = str(row[stt_col]).strip()
-                            elif row:
-                                stt = str(row[0]).strip()
-
-                            # Pad row về đủ số cột header
-                            padded_row = row + [''] * max(0, len(headers) - len(row))
-                            row_dict = {
-                                headers[i]: padded_row[i]
-                                for i in range(len(headers))
-                            }
-
-                            results[original]['found'] = True
-                            results[original]['results'].append({
-                                'qd_name' : qd_name,
-                                'page'    : page_num,
-                                'stt'     : stt,
-                                'headers' : headers,
-                                'row'     : padded_row[:len(headers)],
-                                'row_dict': row_dict,
-                            })
-
+            ca, cb = st.columns([1, 2])
+            with ca:
+                sel_col = st.selectbox('Cột MSSV', cols,
+                                       index=auto_idx if auto_idx >= 0 else 0,
+                                       key='mssv_col_sel')
+                if auto_idx >= 0:
+                    st.success(f'✅ Tự động phát hiện: **{sel_col}**')
+                else:
+                    st.warning('⚠️ Vui lòng chọn đúng cột MSSV')
+            with cb:
+                raw = df_sv[sel_col].dropna().astype(str).str.strip().tolist()
+                mssv_list = [m for m in raw if m and m.lower() != 'nan']
+                st.markdown(f'**Xem trước** — {len(mssv_list)} MSSV')
+                st.dataframe(df_sv[[sel_col]].head(6), use_container_width=True, hide_index=True)
+            mssv_col_ok = bool(mssv_list)
         except Exception as e:
-            errors.append({'file': fname, 'error': str(e)})
+            st.error(f'Lỗi đọc file Excel: {e}')
 
-    results['_errors'] = errors
-    return results
+    # ── Bước 03 — Bắt đầu ──
+    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="step-header"><span class="step-badge">03</span><h3>Bắt đầu tra cứu</h3></div>
+    <div class="step-sub">Hệ thống đọc từng file PDF, tìm MSSV trong bảng dữ liệu rồi chuyển sang màn kết quả</div>
+    """, unsafe_allow_html=True)
 
-
-# ---------------------------------------------------------------------------
-# Build export DataFrames
-# ---------------------------------------------------------------------------
-def build_export_data(mssv_list: list, results: dict):
-    """
-    Trả về (df_summary, df_detail) để xuất Excel.
-    """
-    # Sheet 1 — Tổng hợp
-    summary_rows = []
-    for mssv in mssv_list:
-        r = results.get(mssv.strip(), {'found': False, 'results': []})
-        qd_names = list(dict.fromkeys(x['qd_name'] for x in r['results']))
-        summary_rows.append({
-            'MSSV'        : mssv.strip(),
-            'Tìm thấy'    : 'Có' if r['found'] else 'Không',
-            'Số QĐ'       : len(qd_names),
-            'Danh sách QĐ': ', '.join(qd_names),
-            'Số vị trí'   : len(r['results']),
-        })
-    df_summary = pd.DataFrame(summary_rows)
-
-    # Sheet 2 — Chi tiết
-    detail_rows = []
-    for mssv in mssv_list:
-        r = results.get(mssv.strip(), {'found': False, 'results': []})
-        if not r['results']:
-            detail_rows.append({
-                'MSSV'   : mssv.strip(),
-                'Tên QĐ' : 'Không tìm thấy',
-                'Trang'  : '',
-                'STT'    : '',
-            })
+    cs, cq = st.columns(2)
+    with cs:
+        if sv_file and mssv_col_ok:
+            st.success(f'✅ {len(mssv_list)} MSSV sẵn sàng')
+        elif sv_file:
+            st.warning('⚠️ Chưa xác nhận cột MSSV')
         else:
-            for hit in r['results']:
-                row = {
-                    'MSSV'   : mssv.strip(),
-                    'Tên QĐ' : hit['qd_name'],
-                    'Trang'  : f"Trang {hit['page']}",
-                    'STT'    : hit['stt'],
-                }
-                row.update(hit['row_dict'])
-                detail_rows.append(row)
-    df_detail = pd.DataFrame(detail_rows)
+            st.info('📄 Chưa upload file MSSV')
+    with cq:
+        if qd_files:
+            st.success(f'✅ {len(qd_files)} file PDF')
+            for f in qd_files:
+                st.markdown(f'<div style="font-size:12px;color:{muted}">📄 {f.name}</div>', unsafe_allow_html=True)
+        else:
+            st.info('📁 Chưa upload file PDF')
 
-    return df_summary, df_detail
+    btn_ready = mssv_col_ok and bool(qd_files)
+    run_btn = st.button('🔍 Bắt đầu tra cứu', type='primary',
+                        use_container_width=True, disabled=not btn_ready)
+    if not btn_ready:
+        parts = []
+        if not (sv_file and mssv_col_ok): parts.append('file Excel MSSV')
+        if not qd_files:                  parts.append('file PDF Quyết định')
+        st.caption(f'⚠️ Cần upload: {" và ".join(parts)}')
+
+    # ── Xử lý ──
+    if run_btn and btn_ready:
+        if debug_mode:
+            with st.expander('🛠 Debug pdfplumber', expanded=True):
+                import pdfplumber, io as _io
+                for f in qd_files:
+                    f.seek(0)
+                    st.markdown(f'**{f.name}**')
+                    try:
+                        with pdfplumber.open(_io.BytesIO(f.read())) as pdf:
+                            for pi, page in enumerate(pdf.pages, 1):
+                                tables = page.extract_tables()
+                                if tables:
+                                    st.markdown(f'Trang {pi}: {len(tables)} bảng')
+                                    if show_all_tables:
+                                        for ti, t in enumerate(tables):
+                                            st.write(f'Bảng {ti+1}:', t[:5])
+                    except Exception as e:
+                        st.error(str(e))
+
+        pdf_file_list = []
+        for f in qd_files:
+            f.seek(0)
+            pdf_file_list.append({'name': f.name, 'bytes': f.read()})
+
+        prog = st.progress(0, text='Đang khởi tạo...')
+        all_results = {}
+
+        for i, pf in enumerate(pdf_file_list):
+            prog.progress(int((i / len(pdf_file_list)) * 90),
+                          text=f'Đang đọc ({i+1}/{len(pdf_file_list)}): {pf["name"]}')
+            partial = dl.search_mssv_in_pdfs(mssv_list, [pf])
+            for mssv, data in partial.items():
+                if mssv == '_errors':
+                    all_results.setdefault('_errors', []).extend(data)
+                    continue
+                if mssv not in all_results:
+                    all_results[mssv] = {'found': False, 'results': []}
+                if data['found']:
+                    all_results[mssv]['found'] = True
+                    all_results[mssv]['results'].extend(data['results'])
+
+        prog.progress(100, text='✅ Hoàn thành!')
+
+        st.session_state['dl_results']     = all_results
+        st.session_state['dl_mssv_list']   = mssv_list
+        st.session_state['dl_show_results'] = True
+        st.rerun()
 
 
-def to_excel_bytes(df_summary: pd.DataFrame, df_detail: pd.DataFrame) -> bytes:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_summary.to_excel(writer, sheet_name='Tổng hợp', index=False)
-        df_detail.to_excel(writer, sheet_name='Chi tiết', index=False)
-    return output.getvalue()
+# ===========================================================================
+# MÀN 2 — KẾT QUẢ
+# ===========================================================================
+else:
+    results   = st.session_state['dl_results']   or {}
+    mssv_list = st.session_state['dl_mssv_list'] or []
+
+    found_list = [m for m in mssv_list if results.get(m, {}).get('found')]
+    miss_list  = [m for m in mssv_list if not results.get(m, {}).get('found')]
+    errors     = results.get('_errors', [])
+
+    # ── Header ──
+    col_h, col_btn = st.columns([3, 1])
+    with col_h:
+        st.markdown('<h2 style="margin-bottom:4px">📊 Kết quả tra cứu</h2>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color:{muted};margin-top:0">Kết quả tìm kiếm MSSV trong các Quyết định PDF</p>', unsafe_allow_html=True)
+    with col_btn:
+        if st.button('← Tra cứu mới', use_container_width=True):
+            st.session_state['dl_show_results'] = False
+            st.rerun()
+
+    # ── Stat cards ──
+    st.markdown(f"""
+    <div class="stat-row">
+        <div class="stat-card"><div class="val gray">{len(mssv_list)}</div><div class="lbl">Tổng MSSV</div></div>
+        <div class="stat-card"><div class="val">{len(found_list)}</div><div class="lbl">Tìm thấy trong QĐ</div></div>
+        <div class="stat-card"><div class="val red">{len(miss_list)}</div><div class="lbl">Không có trong QĐ</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    for e in errors:
+        st.warning(f'⚠️ Lỗi đọc **{e["file"]}**: {e["error"]}')
+
+    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
+
+    # ── Build bảng chi tiết (full row data) ──
+    def build_detail_df(subset):
+        rows = []
+        for m in subset:
+            r = results.get(m, {'found': False, 'results': []})
+            if not r['found']:
+                rows.append({
+                    'MSSV'       : m,
+                    'Trạng thái' : '❌ Không tìm thấy',
+                    'Tên QĐ'     : '—',
+                    'Trang'      : '—',
+                    'STT'        : '—',
+                })
+            else:
+                for hit in r['results']:
+                    row = {
+                        'MSSV'       : m,
+                        'Trạng thái' : '✅ Có',
+                        'Tên QĐ'     : hit['qd_name'],
+                        'Trang'      : f'Trang {hit["page"]}',
+                        'STT'        : hit['stt'] or '—',
+                    }
+                    # Thêm toàn bộ dữ liệu từ bảng QĐ (bỏ cột MSSV vì đã có)
+                    for k, v in hit['row_dict'].items():
+                        if k and k.strip() and k not in row:
+                            row[k] = v
+                    rows.append(row)
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    # ── Filter bar ──
+    fc, fq = st.columns([1, 3])
+    with fc:
+        filter_mode = st.radio('Lọc', ['Tất cả', '✅ Tìm thấy', '❌ Không có'],
+                               horizontal=False, key='filter_mode', label_visibility='collapsed')
+    with fq:
+        search_q = st.text_input('🔍 Tìm kiếm MSSV, Họ tên, QĐ...',
+                                 placeholder='Nhập để lọc bảng...', key='search_q',
+                                 label_visibility='collapsed')
+
+    # Chọn subset theo filter
+    if filter_mode == '✅ Tìm thấy':
+        subset = found_list
+    elif filter_mode == '❌ Không có':
+        subset = miss_list
+    else:
+        subset = mssv_list
+
+    df_detail = build_detail_df(subset)
+
+    # Lọc theo từ khoá
+    if search_q and not df_detail.empty:
+        q = search_q.lower()
+        mask = df_detail.apply(
+            lambda col: col.astype(str).str.lower().str.contains(q, na=False)
+        ).any(axis=1)
+        df_detail = df_detail[mask]
+
+    # Hiển thị bảng
+    if df_detail.empty:
+        st.info('Không có kết quả phù hợp.')
+    else:
+        st.markdown(f'<div style="font-size:12px;color:{muted};margin-bottom:6px">{len(df_detail)} dòng</div>', unsafe_allow_html=True)
+        st.dataframe(df_detail, use_container_width=True, hide_index=True, height=500)
+
+    # ── Xuất Excel ──
+    st.markdown('<hr class="step-divider">', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="step-header"><span class="step-badge">05</span><h3>Xuất kết quả</h3></div>
+    <div class="step-sub">File Excel gồm 2 sheet: Tổng hợp và Chi tiết đầy đủ thông tin từ QĐ</div>
+    """, unsafe_allow_html=True)
+
+    df_summary, df_exp_detail = dl.build_export_data(mssv_list, results)
+    excel_bytes = dl.to_excel_bytes(df_summary, df_exp_detail)
+    st.download_button(
+        label='⬇️ Tải file Excel kết quả',
+        data=excel_bytes,
+        file_name='decision_lookup_result.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        use_container_width=True,
+    )
