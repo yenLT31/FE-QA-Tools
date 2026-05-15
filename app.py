@@ -152,30 +152,43 @@ header[data-testid="stHeader"] {{
 }}
 header[data-testid="stHeader"] button {{
     overflow: hidden !important;
-    text-indent: -9999px !important;
+    font-size: 0px !important;
+    color: transparent !important;
+    max-width: 44px !important;
 }}
-header[data-testid="stHeader"] button svg {{
-    text-indent: 0 !important;
-    stroke: {T['accent']} !important;
+header[data-testid="stHeader"] button::after {{
+    content: "»" !important;
+    font-size: 22px !important;
     color: {T['accent']} !important;
+    font-weight: 800 !important;
+    text-indent: 0 !important;
+    display: block !important;
 }}
 button[data-testid="stBaseButton-headerNoPadding"] {{
     overflow: hidden !important;
-    text-indent: -9999px !important;
-    max-width: 40px !important;
+    font-size: 0px !important;
+    color: transparent !important;
+    max-width: 44px !important;
 }}
-button[data-testid="stBaseButton-headerNoPadding"] svg {{
-    stroke: {T['accent']} !important;
+button[data-testid="stBaseButton-headerNoPadding"]::after {{
+    content: "»" !important;
+    font-size: 22px !important;
     color: {T['accent']} !important;
+    font-weight: 800 !important;
+    display: block !important;
 }}
 button[data-testid="stBaseButton-header"] {{
     overflow: hidden !important;
-    text-indent: -9999px !important;
-    max-width: 40px !important;
+    font-size: 0px !important;
+    color: transparent !important;
+    max-width: 44px !important;
 }}
-button[data-testid="stBaseButton-header"] svg {{
-    stroke: {T['accent']} !important;
+button[data-testid="stBaseButton-header"]::after {{
+    content: "«" !important;
+    font-size: 22px !important;
     color: {T['accent']} !important;
+    font-weight: 800 !important;
+    display: block !important;
 }}
 
 </style>""", unsafe_allow_html=True)
