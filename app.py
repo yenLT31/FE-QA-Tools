@@ -146,7 +146,7 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text Material Icon bị lộ (keyboard_double...) ── */
+/* ── Ẩn text lộ + nút đóng/mở sidebar màu xanh ── */
 header[data-testid="stHeader"] {{
     overflow: hidden !important;
 }}
@@ -156,16 +156,8 @@ header[data-testid="stHeader"] button {{
 }}
 header[data-testid="stHeader"] button svg {{
     text-indent: 0 !important;
-}}
-button[data-testid="stBaseButton-headerNoPadding"] {{
-    overflow: hidden !important;
-    text-indent: -9999px !important;
-    max-width: 40px !important;
-}}
-button[data-testid="stBaseButton-header"] {{
-    overflow: hidden !important;
-    text-indent: -9999px !important;
-    max-width: 40px !important;
+    stroke: {T['accent']} !important;
+    color: {T['accent']} !important;
 }}
 </style>""", unsafe_allow_html=True)
 
