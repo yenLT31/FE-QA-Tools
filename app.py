@@ -146,9 +146,9 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text + nút đóng/mở sidebar màu xanh ── */
+/* ── Nút đóng/mở sidebar: ẩn text + hiện icon xanh ── */
 button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"],
-button[data-testid="stCollapseSidebarButton"] [data-testid="stIconMaterial"] {{
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
     font-size: 0px !important;
     overflow: hidden !important;
     width: 24px !important;
@@ -162,7 +162,7 @@ button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]::afte
     color: {T['accent']} !important;
     font-family: sans-serif !important;
 }}
-button[data-testid="stCollapseSidebarButton"] [data-testid="stIconMaterial"]::after {{
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"]::after {{
     content: "«" !important;
     font-size: 20px !important;
     font-weight: 800 !important;
