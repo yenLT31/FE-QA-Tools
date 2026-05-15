@@ -146,60 +146,34 @@ a[data-testid="stPageLink-NavLink"] p {{
     font-size: 13px !important;
     text-align: left !important;
 }}
-/* ── Ẩn text lộ + nút sidebar màu xanh ── */
-.stApp > header {{
+/* ── Ẩn text Material Icon + nút sidebar màu xanh ── */
+header[data-testid="stHeader"] {{
     overflow: hidden !important;
 }}
-.stApp > header button {{
+header[data-testid="stHeader"] button {{
     overflow: hidden !important;
-    font-size: 0px !important;
-    color: transparent !important;
-    max-width: 44px !important;
+    text-indent: -9999px !important;
 }}
-.stApp > header button span {{
-    font-size: 0px !important;
-    visibility: hidden !important;
-    display: none !important;
-}}
-.stApp > header button svg {{
-    visibility: visible !important;
-    display: block !important;
-    stroke: {T['accent']} !important;
-    color: {T['accent']} !important;
-    fill: {T['accent']} !important;
-}}
-.stAppHeader {{
-    overflow: hidden !important;
-}}
-.stAppHeader button {{
-    overflow: hidden !important;
-    font-size: 0px !important;
-    color: transparent !important;
-}}
-.stAppHeader button span {{
-    font-size: 0px !important;
-    visibility: hidden !important;
-    display: none !important;
-}}
-.stAppHeader button svg {{
-    visibility: visible !important;
-    display: block !important;
+header[data-testid="stHeader"] button svg {{
+    text-indent: 0 !important;
     stroke: {T['accent']} !important;
     color: {T['accent']} !important;
 }}
-[data-testid="collapsedControl"] {{
+button[data-testid="stBaseButton-headerNoPadding"] {{
     overflow: hidden !important;
-    font-size: 0px !important;
-    color: transparent !important;
+    text-indent: -9999px !important;
+    max-width: 40px !important;
 }}
-[data-testid="collapsedControl"] span {{
-    font-size: 0px !important;
-    visibility: hidden !important;
-    display: none !important;
+button[data-testid="stBaseButton-headerNoPadding"] svg {{
+    stroke: {T['accent']} !important;
+    color: {T['accent']} !important;
 }}
-[data-testid="collapsedControl"] svg {{
-    visibility: visible !important;
-    display: block !important;
+button[data-testid="stBaseButton-header"] {{
+    overflow: hidden !important;
+    text-indent: -9999px !important;
+    max-width: 40px !important;
+}}
+button[data-testid="stBaseButton-header"] svg {{
     stroke: {T['accent']} !important;
     color: {T['accent']} !important;
 }}
