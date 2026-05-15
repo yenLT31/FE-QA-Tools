@@ -187,25 +187,53 @@ def search_mssv_in_pdfs(mssv_list: list, pdf_files: list) -> dict:
 
         try:
             with pdfplumber.open(io.BytesIO(fbytes)) as pdf:
+                # Lưu headers hợp lệ từ trang trước để dùng lại
+                last_valid_headers  = None
+                last_valid_mssv_col = -1
+                last_valid_stt_col  = -1
+
                 for page_num, page in enumerate(pdf.pages, start=1):
                     tables = page.extract_tables()
                     if not tables:
                         continue
 
                     for table in tables:
-                        if not table or len(table) < 2:
+                        if not table or len(table) < 1:
                             continue
 
-                        # Hàng đầu = header
-                        raw_headers = table[0] or []
-                        headers = [str(h).strip() if h else '' for h in raw_headers]
-                        mssv_col = detect_mssv_col(headers)
-                        stt_col  = detect_stt_col(headers)
+                        # --- Thử detect header từ hàng đầu ---
+                        raw_first = table[0] or []
+                        candidate_headers = [str(h).strip() if h else '' for h in raw_first]
+                        candidate_mssv_col = detect_mssv_col(candidate_headers)
+
+                        if candidate_mssv_col >= 0:
+                            # Hàng đầu là header hợp lệ
+                            headers  = candidate_headers
+                            mssv_col = candidate_mssv_col
+                            stt_col  = detect_stt_col(headers)
+                            data_rows = table[1:] if len(table) > 1 else []
+
+                            # Lưu lại để dùng cho trang không có header
+                            last_valid_headers  = headers
+                            last_valid_mssv_col = mssv_col
+                            last_valid_stt_col  = stt_col
+
+                        elif last_valid_headers is not None:
+                            # Trang này không có header → dùng lại headers trang trước
+                            headers  = last_valid_headers
+                            mssv_col = last_valid_mssv_col
+                            stt_col  = last_valid_stt_col
+                            # Toàn bộ table (kể cả hàng đầu) là data
+                            data_rows = table
+
+                        else:
+                            # Chưa có headers nào hợp lệ, bỏ qua
+                            continue
 
                         if mssv_col < 0:
                             continue
 
-                        data_rows = merge_wrapped_rows(table[1:], mssv_col)
+                        data_rows = merge_wrapped_rows(data_rows, mssv_col)
 
                         for row in data_rows:
                             if not row or mssv_col >= len(row):
