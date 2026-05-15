@@ -1,1 +1,27 @@
+[
+    {
+        "id": "graduation-reviewer",
+        "name": "Graduation Reviewer",
+        "desc": "Rà soát dữ liệu xét tốt nghiệp, đối chiếu GPA và điểm số theo phụ lục.",
+        "icon": "📊",
+        "status": "live",
+        "uses": 150
+    },
+    {
+        "id": "replacecode-manager",
+        "name": "ReplaceCode Manager",
+        "desc": "Quản lý và cập nhật môn thay thế / tương đương từ Quyết định PDF.",
+        "icon": "📋",
+        "status": "live",
+        "uses": 80
+    },
+    {
+        "id": "decision-lookup",
+        "name": "Decision Lookup",
+        "desc": "Tra cứu MSSV trong các file Quyết định PDF — tìm nhanh sinh viên thuộc QĐ nào.",
+        "icon": "🔍",
+        "status": "live",
+        "uses": 60
+    }
+]
 
