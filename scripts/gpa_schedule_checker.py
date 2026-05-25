@@ -243,6 +243,7 @@ def generate_reports(schedule_df, gpa_df):
         report2 = report2.drop(columns=['_key'], errors='ignore')
 
         # ── REPORT 3: GV dưới 30% nhưng bị lấy GPA ──
+        # Hiển thị theo cấu trúc lịch kỳ (GroupName, SubjectCode, Lecturer, GV_Sessions, Total_Sessions, Tỷ lệ)
         not_eligible = lecturer_pct[lecturer_pct['Đủ ĐK 30%'] == False].copy()
         not_eligible['_key'] = (
             not_eligible['GroupName'].astype(str).str.strip() + '|' +
@@ -250,7 +251,11 @@ def generate_reports(schedule_df, gpa_df):
             not_eligible['Lecturer'].astype(str).str.strip()
         )
         not_eligible_keys = set(not_eligible['_key'].tolist())
-        report3 = gpa_df[gpa_df['_key'].isin(not_eligible_keys)].copy()
+
+        # Lọc những GV dưới 30% mà CÓ trong file GPA
+        gpa_keys_in_not_eligible = gpa_df[gpa_df['_key'].isin(not_eligible_keys)]['_key'].unique()
+
+        report3 = not_eligible[not_eligible['_key'].isin(gpa_keys_in_not_eligible)].copy()
         report3 = report3.drop(columns=['_key'], errors='ignore')
 
         # Clean up
