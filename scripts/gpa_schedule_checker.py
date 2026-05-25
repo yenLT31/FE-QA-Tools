@@ -85,60 +85,53 @@ def calculate_lecturer_percentage(schedule_df,
 def check_response_rate(gpa_df):
     """
     Kiểm tra tỷ lệ phản hồi từng lớp và tính tỷ lệ lớp thành công.
-    
-    Returns:
-        gpa_with_status: DataFrame gốc + cột 'Tỷ lệ phản hồi (%)' và 'Đạt phản hồi 60%'
-        low_response_df: DataFrame các lớp có tỷ lệ < 60%
-        summary_stats: dict chứa total_classes, classes_success, classes_fail, success_rate
+    Thêm cột 'Tỷ lệ phản hồi (%)' và 'Đạt phản hồi 60%' vào DataFrame.
     """
     df = gpa_df.copy()
 
-    # Xác định cột tỷ lệ phản hồi
+    # Tìm cột số SV đã feedback và số SV lớp
+    sv_fb_col = None
+    sv_total_col = None
+
+    for col in df.columns:
+        col_lower = col.lower().strip()
+        if 'số sv đã feedback' in col_lower or 'sv đã feedback' in col_lower or 'số sv đã fb' in col_lower:
+            sv_fb_col = col
+        elif 'số sv lớp' in col_lower or 'sv lớp' in col_lower:
+            sv_total_col = col
+
+    # Tìm cột tỷ lệ có sẵn
     rate_col = None
     for col in df.columns:
-        if 'tỷ lệ' in col.lower() and 'feedback' in col.lower():
-            rate_col = col
-            break
-        elif 'tỷ lệ' in col.lower() and 'sv' in col.lower():
-            rate_col = col
-            break
-        elif 'tỷ lệ' in col.lower() and 'phản hồi' in col.lower():
+        col_lower = col.lower().strip()
+        if 'tỷ lệ' in col_lower and ('feedback' in col_lower or 'sv' in col_lower or 'phản hồi' in col_lower):
             rate_col = col
             break
 
-    if rate_col is None:
-        # Thử tính từ Số SV đã feedback / Số SV lớp
-        sv_fb_col = None
-        sv_total_col = None
-        for col in df.columns:
-            if 'số sv đã feedback' in col.lower() or 'sv đã feedback' in col.lower():
-                sv_fb_col = col
-            elif 'số sv lớp' in col.lower() or 'sv lớp' in col.lower():
-                sv_total_col = col
-        if sv_fb_col and sv_total_col:
-            df['Tỷ lệ phản hồi (%)'] = round(
-                pd.to_numeric(df[sv_fb_col], errors='coerce') /
-                pd.to_numeric(df[sv_total_col], errors='coerce') * 100, 1
-            )
-        else:
-            # Không tìm được cột → trả về trống
-            df['Tỷ lệ phản hồi (%)'] = None
-            df['Đạt phản hồi 60%'] = None
-            return df, pd.DataFrame(), {
-                'total_classes': len(df),
-                'classes_success': 0,
-                'classes_fail': 0,
-                'success_rate': 0
-            }
-    else:
-        # Chuyển đổi giá trị cột tỷ lệ
+    if sv_fb_col and sv_total_col:
+        # Tính từ 2 cột số liệu
+        fb = pd.to_numeric(df[sv_fb_col], errors='coerce')
+        total = pd.to_numeric(df[sv_total_col], errors='coerce')
+        df['Tỷ lệ phản hồi (%)'] = round(fb / total * 100, 1)
+    elif rate_col:
+        # Dùng cột tỷ lệ có sẵn
         df['Tỷ lệ phản hồi (%)'] = pd.to_numeric(
             df[rate_col].astype(str).str.replace('%', '').str.replace(',', '.'),
             errors='coerce'
         )
-        # Nếu giá trị <= 1 thì nhân 100 (dạng 0.66 thay vì 66)
+        # Nếu giá trị <= 1.5 thì đang ở dạng 0.xx → nhân 100
         if df['Tỷ lệ phản hồi (%)'].max() <= 1.5:
             df['Tỷ lệ phản hồi (%)'] = round(df['Tỷ lệ phản hồi (%)'] * 100, 1)
+    else:
+        # Không tìm được cột
+        df['Tỷ lệ phản hồi (%)'] = None
+        df['Đạt phản hồi 60%'] = None
+        return df, pd.DataFrame(), {
+            'total_classes': len(df),
+            'classes_success': 0,
+            'classes_fail': 0,
+            'success_rate': 0
+        }
 
     # Đánh dấu đạt / không đạt
     df['Đạt phản hồi 60%'] = df['Tỷ lệ phản hồi (%)'] >= 60
@@ -160,6 +153,7 @@ def check_response_rate(gpa_df):
     }
 
     return df, low_response_df, summary_stats
+
 
 
 # ============================================================
