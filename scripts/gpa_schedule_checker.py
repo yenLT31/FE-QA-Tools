@@ -9,7 +9,7 @@ from datetime import datetime
 
 def merge_gpa_files(uploaded_files):
     """Gộp tất cả sheets từ tất cả file GPA thành 1 DataFrame.
-    Chỉ lấy sheet có chứa cột 'GV' và 'GPA' (sheet GPA thật sự).
+    Chỉ lấy sheet có chứa cột 'GV' và 'GPA'.
     """
     all_data = []
 
@@ -21,7 +21,7 @@ def merge_gpa_files(uploaded_files):
                 if df.empty:
                     continue
 
-                # Kiểm tra đây có phải sheet GPA không
+                # Chuẩn hóa tên cột (strip spaces)
                 cols_stripped = [str(col).strip() for col in df.columns.tolist()]
                 cols_upper = [col.upper() for col in cols_stripped]
 
@@ -30,9 +30,9 @@ def merge_gpa_files(uploaded_files):
                 has_gpa = 'GPA' in cols_upper
 
                 if not (has_gv and has_gpa):
-                    continue  # Bỏ qua sheet không phải GPA
+                    continue
 
-                df.columns = cols_stripped  # Chuẩn hóa tên cột (strip spaces)
+                df.columns = cols_stripped
                 df['Source_File'] = f.name
                 df['Source_Sheet'] = sh
                 all_data.append(df)
@@ -47,7 +47,7 @@ def merge_gpa_files(uploaded_files):
 
 def merge_schedule_files(uploaded_files):
     """Gộp tất cả sheets từ tất cả file lịch kỳ thành 1 DataFrame.
-    Chỉ lấy sheet có chứa cột 'GroupName' và 'Lecturer' (sheet lịch kỳ thật sự).
+    Chỉ lấy sheet có chứa cột 'GroupName' và 'Lecturer'.
     """
     all_data = []
 
@@ -59,14 +59,13 @@ def merge_schedule_files(uploaded_files):
                 if df.empty:
                     continue
 
-                # Kiểm tra đây có phải sheet lịch kỳ không
                 cols_stripped = [str(col).strip() for col in df.columns.tolist()]
 
                 has_group = 'GroupName' in cols_stripped
                 has_lecturer = 'Lecturer' in cols_stripped
 
                 if not (has_group and has_lecturer):
-                    continue  # Bỏ qua sheet không phải lịch kỳ
+                    continue
 
                 df.columns = cols_stripped
                 df['Source_File'] = f.name
@@ -91,9 +90,14 @@ def calculate_lecturer_percentage(schedule_df,
                                    lecturer_col='Lecturer'):
     """
     Tính % số session mỗi GV dạy trong từng lớp/môn.
-    Tất cả session đều được tính (StatusSlot chỉ là Online/Offline).
+    Không phân biệt hoa/thường. Tất cả session đều được tính.
     """
     df = schedule_df.copy()
+
+    # Chuẩn hóa: lowercase + strip
+    df[group_col] = df[group_col].astype(str).str.strip().str.lower()
+    df[subject_col] = df[subject_col].astype(str).str.strip().str.lower()
+    df[lecturer_col] = df[lecturer_col].astype(str).str.strip().str.lower()
 
     # Tổng session theo lớp/môn
     total_sessions = df.groupby([group_col, subject_col]).size().reset_index(name='Total_Sessions')
@@ -197,10 +201,11 @@ def generate_reports(schedule_df, gpa_df):
     - report2: GV đủ 30% nhưng chưa được lấy GPA
     - report3: GV dưới 30% nhưng bị lấy GPA (hiển thị theo cấu trúc lịch kỳ)
 
+    Không phân biệt hoa/thường khi matching.
     Returns: (report1, report2, report3, error_message)
     """
     try:
-        # Tính tỷ lệ GV
+        # Tính tỷ lệ GV (đã lowercase bên trong hàm)
         lecturer_pct = calculate_lecturer_percentage(schedule_df)
 
         # Tìm cột trong GPA
@@ -257,18 +262,18 @@ def generate_reports(schedule_df, gpa_df):
         gpa_df[gpa_score_col] = pd.to_numeric(gpa_df[gpa_score_col], errors='coerce')
         report1 = gpa_df[gpa_df[gpa_score_col] < 3.4].copy()
 
-        # ── Tạo key matching ──
+        # ── Tạo key matching (LOWERCASE để không phân biệt hoa/thường) ──
         eligible = lecturer_pct[lecturer_pct['Đủ ĐK 30%'] == True].copy()
         eligible['_key'] = (
-            eligible['GroupName'].astype(str).str.strip() + '|' +
-            eligible['SubjectCode'].astype(str).str.strip() + '|' +
-            eligible['Lecturer'].astype(str).str.strip()
+            eligible['GroupName'].astype(str).str.strip().str.lower() + '|' +
+            eligible['SubjectCode'].astype(str).str.strip().str.lower() + '|' +
+            eligible['Lecturer'].astype(str).str.strip().str.lower()
         )
 
         gpa_df['_key'] = (
-            gpa_df[lop_col].astype(str).str.strip() + '|' +
-            gpa_df[mon_col].astype(str).str.strip() + '|' +
-            gpa_df[gv_col].astype(str).str.strip()
+            gpa_df[lop_col].astype(str).str.strip().str.lower() + '|' +
+            gpa_df[mon_col].astype(str).str.strip().str.lower() + '|' +
+            gpa_df[gv_col].astype(str).str.strip().str.lower()
         )
 
         gpa_keys = set(gpa_df['_key'].tolist())
@@ -278,12 +283,11 @@ def generate_reports(schedule_df, gpa_df):
         report2 = report2.drop(columns=['_key'], errors='ignore')
 
         # ── REPORT 3: GV dưới 30% nhưng bị lấy GPA ──
-        # Hiển thị theo cấu trúc lịch kỳ (GroupName, SubjectCode, Lecturer, GV_Sessions, Total_Sessions, Tỷ lệ)
         not_eligible = lecturer_pct[lecturer_pct['Đủ ĐK 30%'] == False].copy()
         not_eligible['_key'] = (
-            not_eligible['GroupName'].astype(str).str.strip() + '|' +
-            not_eligible['SubjectCode'].astype(str).str.strip() + '|' +
-            not_eligible['Lecturer'].astype(str).str.strip()
+            not_eligible['GroupName'].astype(str).str.strip().str.lower() + '|' +
+            not_eligible['SubjectCode'].astype(str).str.strip().str.lower() + '|' +
+            not_eligible['Lecturer'].astype(str).str.strip().str.lower()
         )
 
         # Lọc: chỉ lấy GV dưới 30% mà CÓ xuất hiện trong file GPA
