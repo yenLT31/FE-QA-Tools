@@ -1,6 +1,7 @@
 import pandas as pd
 import re
 from io import BytesIO
+from datetime import datetime
 
 
 def merge_gpa_files(uploaded_files):
@@ -62,22 +63,16 @@ def merge_schedule_files(uploaded_files):
 def calculate_lecturer_percentage(schedule_df):
     """
     Tính tỷ lệ % session mỗi GV dạy trong từng lớp/môn.
-    Trả về DataFrame: GroupName, SubjectCode, Lecturer, Tổng session lớp, Số session GV dạy, Tỷ lệ %, Đủ ĐK 30%
     """
-    # Đếm tổng session mỗi lớp/môn
     total_sessions = schedule_df.groupby(
         ['GroupName', 'SubjectCode']
     ).size().reset_index(name='Tổng_Session_Lớp')
 
-    # Đếm session mỗi GV dạy trong từng lớp/môn
     gv_sessions = schedule_df.groupby(
         ['GroupName', 'SubjectCode', 'Lecturer']
     ).size().reset_index(name='Session_GV_Dạy')
 
-    # Merge
     result = gv_sessions.merge(total_sessions, on=['GroupName', 'SubjectCode'], how='left')
-
-    # Tính tỷ lệ
     result['Tỷ_Lệ_%'] = round(result['Session_GV_Dạy'] / result['Tổng_Session_Lớp'] * 100, 1)
     result['Đủ_ĐK_30%'] = result['Tỷ_Lệ_%'] >= 30
 
@@ -86,10 +81,11 @@ def calculate_lecturer_percentage(schedule_df):
 
 def generate_reports(schedule_df, gpa_df):
     """
-    Tạo 3 báo cáo:
+    Tạo 4 báo cáo:
     1. Lớp có GPA < 3.4
     2. Lớp đủ ĐK >=30% nhưng CHƯA lấy GPA
     3. Lớp dưới 30% nhưng BỊ lấy GPA
+    4. Lớp có trong GPA nhưng KHÔNG có trong lịch kỳ
     """
 
     # --- Tính tỷ lệ GV ---
@@ -104,7 +100,6 @@ def generate_reports(schedule_df, gpa_df):
     not_eligible.rename(columns={'GroupName': 'Lớp', 'Lecturer': 'GV'}, inplace=True)
 
     # --- Chuẩn hóa cột trong GPA ---
-    # Tìm cột Lớp và GV trong file GPA
     gpa_lop_col = None
     gpa_gv_col = None
     gpa_mon_col = None
@@ -118,12 +113,17 @@ def generate_reports(schedule_df, gpa_df):
             gpa_mon_col = col
 
     if not gpa_lop_col or not gpa_gv_col:
-        return None, None, None, "Không tìm thấy cột Lớp hoặc GV trong file GPA"
+        return None, None, None, None, "Không tìm thấy cột Lớp hoặc GV trong file GPA"
 
     # Tạo key để match
     gpa_df['_key'] = gpa_df[gpa_lop_col].astype(str).str.strip() + '|' + gpa_df[gpa_gv_col].astype(str).str.strip()
     eligible['_key'] = eligible['Lớp'].astype(str).str.strip() + '|' + eligible['GV'].astype(str).str.strip()
     not_eligible['_key'] = not_eligible['Lớp'].astype(str).str.strip() + '|' + not_eligible['GV'].astype(str).str.strip()
+
+    # Tạo key từ lịch kỳ (tất cả GV/Lớp)
+    all_schedule_keys = set(
+        lecturer_pct['GroupName'].astype(str).str.strip() + '|' + lecturer_pct['Lecturer'].astype(str).str.strip()
+    )
 
     # --- BÁO CÁO 1: GPA < 3.4 ---
     gpa_col = None
@@ -135,7 +135,6 @@ def generate_reports(schedule_df, gpa_df):
     if gpa_col:
         gpa_df[gpa_col] = pd.to_numeric(gpa_df[gpa_col], errors='coerce')
         report1 = gpa_df[gpa_df[gpa_col] < 3.4].copy()
-        # Bỏ cột _key khi xuất
         report1 = report1.drop(columns=['_key'], errors='ignore')
     else:
         report1 = pd.DataFrame()
@@ -149,20 +148,38 @@ def generate_reports(schedule_df, gpa_df):
     not_eligible_but_surveyed = gpa_df[gpa_df['_key'].isin(set(not_eligible['_key'].tolist()))].copy()
     not_eligible_but_surveyed = not_eligible_but_surveyed.drop(columns=['_key'], errors='ignore')
 
-    # Thêm cột tỷ lệ % vào báo cáo 3
-    not_eligible_temp = not_eligible[['_key', 'Tỷ_Lệ_%']].copy()
-    # Không merge vì đã drop _key, nên thêm lại trước khi drop
-    # Giữ nguyên, xuất ra
+    # --- BÁO CÁO 4: Có trong GPA nhưng KHÔNG có trong lịch kỳ ---
+    gpa_not_in_schedule = gpa_df[~gpa_df['_key'].isin(all_schedule_keys)].copy()
+    gpa_not_in_schedule = gpa_not_in_schedule.drop(columns=['_key'], errors='ignore')
 
     # Cleanup
     gpa_df.drop(columns=['_key'], errors='ignore', inplace=True)
 
-    return report1, eligible_not_surveyed, not_eligible_but_surveyed, None
+    return report1, eligible_not_surveyed, not_eligible_but_surveyed, gpa_not_in_schedule, None
 
 
-def export_reports_to_excel(report1, report2, report3):
+def export_gpa_merged(gpa_df):
     """
-    Xuất 3 báo cáo ra 1 file Excel với 3 sheets.
+    Xuất file tổng hợp GPA (có Source_File, Source_Sheet).
+    Tên file: yyyymmdd Tổng hợp GPA.xlsx
+    """
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        gpa_df.to_excel(writer, index=False, sheet_name='Tổng hợp GPA')
+    output.seek(0)
+    return output
+
+
+def get_merged_filename():
+    """Trả về tên file tổng hợp GPA với ngày hiện tại."""
+    today = datetime.now().strftime('%Y%m%d')
+    return f"{today} Tổng hợp GPA.xlsx"
+
+
+def export_reports_to_excel(report1, report2, report3, report4):
+    """
+    Xuất 4 báo cáo ra 1 file Excel với 4 sheets.
+    Tên file: yyyymmdd Result check GPA.xlsx
     """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -184,5 +201,17 @@ def export_reports_to_excel(report1, report2, report3):
             pd.DataFrame({'Thông báo': ['Không có lớp nào dưới 30% bị lấy GPA']}).to_excel(
                 writer, index=False, sheet_name='Dưới 30% bị lấy GPA')
 
+        if report4 is not None and not report4.empty:
+            report4.to_excel(writer, index=False, sheet_name='GPA không có trong lịch kỳ')
+        else:
+            pd.DataFrame({'Thông báo': ['Tất cả lớp lấy GPA đều có trong lịch kỳ']}).to_excel(
+                writer, index=False, sheet_name='GPA không có trong lịch kỳ')
+
     output.seek(0)
     return output
+
+
+def get_report_filename():
+    """Trả về tên file báo cáo với ngày hiện tại."""
+    today = datetime.now().strftime('%Y%m%d')
+    return f"{today} Result check GPA.xlsx"
