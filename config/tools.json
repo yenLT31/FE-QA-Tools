@@ -22,6 +22,14 @@
         "icon": "🔍",
         "status": "live",
         "uses": 60
+    },
+    {
+        "id": "gpa-schedule-checker",
+        "name": "GPA schedule",
+        "desc": "Kiểm tra GPA",
+        "icon": "🎯",
+        "status": "live",
+        "uses": 60
     }
 ]
 
