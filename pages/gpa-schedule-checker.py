@@ -55,8 +55,9 @@ T = DARK if st.session_state.theme == "dark" else LIGHT
 # ============================================================
 defaults = {
     "gpa_report1": None, "gpa_report2": None, "gpa_report3": None,
-    "gpa_report4": None, "gpa_merged_df": None,
-    "gpa_lecturer_pct": None, "gpa_done": False, "gpa_stats": {},
+    "gpa_report4": None, "gpa_low_response": None, "gpa_summary": None,
+    "gpa_merged_df": None, "gpa_lecturer_pct": None,
+    "gpa_done": False, "gpa_stats": {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -346,7 +347,7 @@ with tabs[0]:
         lecturer_pct = logic.calculate_lecturer_percentage(schedule_df)
 
         progress.progress(0.7, text="Đang tạo báo cáo...")
-        report1, report2, report3, report4, error = logic.generate_reports(schedule_df, gpa_df)
+        report1, report2, report3, report4, low_response, summary, error = logic.generate_reports(schedule_df, gpa_df)
 
         if error:
             st.error(f"❌ {error}")
@@ -357,6 +358,8 @@ with tabs[0]:
         st.session_state.gpa_report2 = report2
         st.session_state.gpa_report3 = report3
         st.session_state.gpa_report4 = report4
+        st.session_state.gpa_low_response = low_response
+        st.session_state.gpa_summary = summary
         st.session_state.gpa_merged_df = gpa_df
         st.session_state.gpa_lecturer_pct = lecturer_pct
         st.session_state.gpa_done = True
@@ -365,6 +368,7 @@ with tabs[0]:
             "eligible_no_gpa": len(report2) if report2 is not None and not report2.empty else 0,
             "not_eligible_has_gpa": len(report3) if report3 is not None and not report3.empty else 0,
             "gpa_not_in_schedule": len(report4) if report4 is not None and not report4.empty else 0,
+            "low_response": len(low_response) if low_response is not None and not low_response.empty else 0,
             "total_gv": len(lecturer_pct),
         }
 
@@ -387,75 +391,13 @@ with tabs[1]:
         report2 = st.session_state.gpa_report2
         report3 = st.session_state.gpa_report3
         report4 = st.session_state.gpa_report4
+        low_response = st.session_state.gpa_low_response
+        summary = st.session_state.gpa_summary
         gpa_merged_df = st.session_state.gpa_merged_df
         lecturer_pct = st.session_state.gpa_lecturer_pct
 
-        # Metric cards
-        st.markdown(f"""
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
-            {card_metric("GPA dưới 3.4", stats['gpa_low'], T['red'], T['rbg'])}
-            {card_metric("Đủ 30% chưa lấy GPA", stats['eligible_no_gpa'], T['yellow'], T['ybg'])}
-            {card_metric("Dưới 30% bị lấy GPA", stats['not_eligible_has_gpa'], T['orange'], T['obg'])}
-            {card_metric("GPA không có trong lịch kỳ", stats['gpa_not_in_schedule'], T['blue'], T['bbg'])}
-        </div>""", unsafe_allow_html=True)
-
-        # Detail tabs
-        detail_tabs = st.tabs([
-            f"🔴 GPA dưới 3.4 ({stats['gpa_low']})",
-            f"🟡 Đủ 30% chưa lấy GPA ({stats['eligible_no_gpa']})",
-            f"🟠 Dưới 30% bị lấy GPA ({stats['not_eligible_has_gpa']})",
-            f"🔵 GPA không có trong lịch kỳ ({stats['gpa_not_in_schedule']})",
-            "📊 Tỷ lệ % GV theo lớp"
-        ])
-
-        with detail_tabs[0]:
-            if report1 is not None and not report1.empty:
-                st.dataframe(report1, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào GPA dưới 3.4</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[1]:
-            if report2 is not None and not report2.empty:
-                st.dataframe(report2, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Tất cả GV đủ ĐK đã được lấy GPA</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[2]:
-            if report3 is not None and not report3.empty:
-                st.dataframe(report3, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào vi phạm</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[3]:
-            if report4 is not None and not report4.empty:
-                st.dataframe(report4, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Tất cả lớp lấy GPA đều có trong lịch kỳ</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[4]:
-            st.dataframe(lecturer_pct, use_container_width=True, height=500, hide_index=True)
-
-        # Download buttons
-        divider()
-
+        # === NÚT TẢI ĐẶT TRÊN CÙNG ===
         col_dl1, col_dl2 = st.columns(2)
-
         with col_dl1:
             excel_merged = logic.export_gpa_merged(gpa_merged_df)
             st.download_button(
@@ -465,9 +407,10 @@ with tabs[1]:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
-
         with col_dl2:
-            excel_report = logic.export_reports_to_excel(report1, report2, report3, report4)
+            excel_report = logic.export_reports_to_excel(
+                report1, report2, report3, report4, low_response, summary
+            )
             st.download_button(
                 label="📥  Tải Result check GPA (.xlsx)",
                 data=excel_report,
@@ -476,7 +419,89 @@ with tabs[1]:
                 use_container_width=True,
             )
 
-        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        # Metric cards
+        st.markdown(f"""
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:28px">
+            {card_metric("GPA dưới 3.4", stats['gpa_low'], T['red'], T['rbg'])}
+            {card_metric("Đủ 30% chưa lấy GPA", stats['eligible_no_gpa'], T['yellow'], T['ybg'])}
+            {card_metric("Dưới 30% bị lấy GPA", stats['not_eligible_has_gpa'], T['orange'], T['obg'])}
+            {card_metric("Không có trong lịch kỳ", stats['gpa_not_in_schedule'], T['blue'], T['bbg'])}
+            {card_metric("Phản hồi dưới 60%", stats['low_response'], T['red'], T['rbg'])}
+        </div>""", unsafe_allow_html=True)
+
+        # Detail tabs
+        detail_tabs = st.tabs([
+            f"📋 Tổng kết",
+            f"🔴 GPA dưới 3.4 ({stats['gpa_low']})",
+            f"🟡 Đủ 30% chưa lấy GPA ({stats['eligible_no_gpa']})",
+            f"🟠 Dưới 30% bị lấy GPA ({stats['not_eligible_has_gpa']})",
+            f"🔵 Không có trong lịch kỳ ({stats['gpa_not_in_schedule']})",
+            f"⚪ Phản hồi dưới 60% ({stats['low_response']})",
+            "📊 Tỷ lệ % GV theo lớp"
+        ])
+
+        with detail_tabs[0]:
+            if summary is not None and not summary.empty:
+                st.dataframe(summary, use_container_width=True, hide_index=True)
+            else:
+                st.info("Không có dữ liệu tổng kết.")
+
+        with detail_tabs[1]:
+            if report1 is not None and not report1.empty:
+                st.dataframe(report1, use_container_width=True, height=500, hide_index=True)
+            else:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:16px;text-align:center">
+                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
+                        ✅ Không có lớp nào GPA dưới 3.4</span>
+                </div>""", unsafe_allow_html=True)
+
+        with detail_tabs[2]:
+            if report2 is not None and not report2.empty:
+                st.dataframe(report2, use_container_width=True, height=500, hide_index=True)
+            else:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:16px;text-align:center">
+                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
+                        ✅ Tất cả GV đủ ĐK đã được lấy GPA</span>
+                </div>""", unsafe_allow_html=True)
+
+        with detail_tabs[3]:
+            if report3 is not None and not report3.empty:
+                st.dataframe(report3, use_container_width=True, height=500, hide_index=True)
+            else:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:16px;text-align:center">
+                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
+                        ✅ Không có lớp nào vi phạm</span>
+                </div>""", unsafe_allow_html=True)
+
+        with detail_tabs[4]:
+            if report4 is not None and not report4.empty:
+                st.dataframe(report4, use_container_width=True, height=500, hide_index=True)
+            else:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:16px;text-align:center">
+                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
+                        ✅ Tất cả lớp lấy GPA đều có trong lịch kỳ</span>
+                </div>""", unsafe_allow_html=True)
+
+        with detail_tabs[5]:
+            if low_response is not None and not low_response.empty:
+                st.dataframe(low_response, use_container_width=True, height=500, hide_index=True)
+            else:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:16px;text-align:center">
+                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
+                        ✅ Tất cả lớp đều đạt tỷ lệ phản hồi >= 60%</span>
+                </div>""", unsafe_allow_html=True)
+
+        with detail_tabs[6]:
+            st.dataframe(lecturer_pct, use_container_width=True, height=500, hide_index=True)
+
+        divider()
         if st.button("🔄  Làm lại đối sánh mới", key="btn_reset"):
             for k in defaults:
                 st.session_state[k] = defaults[k]
