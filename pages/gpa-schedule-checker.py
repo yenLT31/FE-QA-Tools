@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from scripts.gpa-schedule-checker import (
+from scripts.gpa_schedule_checker import (
     merge_gpa_files,
     merge_schedule_files,
     calculate_lecturer_percentage,
