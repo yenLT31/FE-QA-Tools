@@ -56,17 +56,12 @@ def merge_schedule_files(uploaded_files):
 def calculate_lecturer_percentage(schedule_df,
                                    group_col='GroupName',
                                    subject_col='SubjectCode',
-                                   lecturer_col='Lecturer',
-                                   status_col='StatusSlot'):
+                                   lecturer_col='Lecturer'):
     """
     Tính % số session mỗi GV dạy trong từng lớp/môn.
-    Loại bỏ các session có StatusSlot = 'OFF' (nếu có cột).
+    Tất cả session đều được tính (StatusSlot chỉ là Online/Offline).
     """
     df = schedule_df.copy()
-
-    # Loại bỏ session bị hủy
-    if status_col in df.columns:
-        df = df[df[status_col].astype(str).str.upper() != 'OFF']
 
     # Tổng session theo lớp/môn
     total_sessions = df.groupby([group_col, subject_col]).size().reset_index(name='Total_Sessions')
@@ -80,6 +75,7 @@ def calculate_lecturer_percentage(schedule_df,
     merged['Đủ ĐK 30%'] = merged['Tỷ lệ (%)'] >= 30
 
     return merged
+
 
 
 # ============================================================
