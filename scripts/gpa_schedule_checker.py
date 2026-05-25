@@ -1,339 +1,385 @@
 import pandas as pd
-import re
 from io import BytesIO
 from datetime import datetime
 
 
+# ============================================================
+#  1. MERGE FILES
+# ============================================================
+
 def merge_gpa_files(uploaded_files):
-    """
-    Gộp tất cả sheets từ tất cả files GPA thành 1 DataFrame.
-    """
+    """Gộp tất cả sheets từ tất cả file GPA thành 1 DataFrame."""
     all_data = []
-
-    for file in uploaded_files:
+    for f in uploaded_files:
         try:
-            xl = pd.ExcelFile(file)
-            for sheet_name in xl.sheet_names:
-                try:
-                    df = pd.read_excel(file, sheet_name=sheet_name)
-                    if df.empty:
-                        continue
-                    df['Source_File'] = file.name
-                    df['Source_Sheet'] = sheet_name
-                    all_data.append(df)
-                except Exception:
-                    pass
+            xl = pd.ExcelFile(f)
+            for sh in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sh)
+                if df.empty:
+                    continue
+                df['Source_File'] = f.name
+                df['Source_Sheet'] = sh
+                all_data.append(df)
         except Exception:
-            pass
-
-    if all_data:
-        result = pd.concat(all_data, ignore_index=True)
-        return result
-    else:
+            continue
+    if not all_data:
         return pd.DataFrame()
-
-
-def merge_schedule_files(uploaded_files):
-    """
-    Gộp tất cả sheets từ tất cả files lịch kỳ thành 1 DataFrame.
-    """
-    all_data = []
-
-    for file in uploaded_files:
-        try:
-            xl = pd.ExcelFile(file)
-            for sheet_name in xl.sheet_names:
-                try:
-                    df = pd.read_excel(file, sheet_name=sheet_name)
-                    if df.empty:
-                        continue
-                    all_data.append(df)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    if all_data:
-        result = pd.concat(all_data, ignore_index=True)
-        return result
-    else:
-        return pd.DataFrame()
-
-
-def calculate_lecturer_percentage(schedule_df):
-    """
-    Tính tỷ lệ % session mỗi GV dạy trong từng lớp/môn.
-    """
-    total_sessions = schedule_df.groupby(
-        ['GroupName', 'SubjectCode']
-    ).size().reset_index(name='Tổng_Session_Lớp')
-
-    gv_sessions = schedule_df.groupby(
-        ['GroupName', 'SubjectCode', 'Lecturer']
-    ).size().reset_index(name='Session_GV_Dạy')
-
-    result = gv_sessions.merge(total_sessions, on=['GroupName', 'SubjectCode'], how='left')
-    result['Tỷ_Lệ_%'] = round(result['Session_GV_Dạy'] / result['Tổng_Session_Lớp'] * 100, 1)
-    result['Đủ_ĐK_30%'] = result['Tỷ_Lệ_%'] >= 30
-
+    result = pd.concat(all_data, ignore_index=True)
     return result
 
 
+def merge_schedule_files(uploaded_files):
+    """Gộp tất cả sheets từ tất cả file lịch kỳ thành 1 DataFrame."""
+    all_data = []
+    for f in uploaded_files:
+        try:
+            xl = pd.ExcelFile(f)
+            for sh in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sh)
+                if df.empty:
+                    continue
+                df['Source_File'] = f.name
+                df['Source_Sheet'] = sh
+                all_data.append(df)
+        except Exception:
+            continue
+    if not all_data:
+        return pd.DataFrame()
+    result = pd.concat(all_data, ignore_index=True)
+    return result
+
+
+# ============================================================
+#  2. CALCULATE LECTURER PERCENTAGE (≥30%)
+# ============================================================
+
+def calculate_lecturer_percentage(schedule_df,
+                                   group_col='GroupName',
+                                   subject_col='SubjectCode',
+                                   lecturer_col='Lecturer',
+                                   status_col='StatusSlot'):
+    """
+    Tính % số session mỗi GV dạy trong từng lớp/môn.
+    Loại bỏ các session có StatusSlot = 'OFF' (nếu có cột).
+    """
+    df = schedule_df.copy()
+
+    # Loại bỏ session bị hủy
+    if status_col in df.columns:
+        df = df[df[status_col].astype(str).str.upper() != 'OFF']
+
+    # Tổng session theo lớp/môn
+    total_sessions = df.groupby([group_col, subject_col]).size().reset_index(name='Total_Sessions')
+
+    # Session theo GV/lớp/môn
+    lecturer_sessions = df.groupby([group_col, subject_col, lecturer_col]).size().reset_index(name='GV_Sessions')
+
+    # Merge
+    merged = lecturer_sessions.merge(total_sessions, on=[group_col, subject_col], how='left')
+    merged['Tỷ lệ (%)'] = round(merged['GV_Sessions'] / merged['Total_Sessions'] * 100, 1)
+    merged['Đủ ĐK 30%'] = merged['Tỷ lệ (%)'] >= 30
+
+    return merged
+
+
+# ============================================================
+#  3. CHECK RESPONSE RATE (≥60%) & SUCCESS RATE (≥95%)
+# ============================================================
+
 def check_response_rate(gpa_df):
     """
-    Kiểm tra tỷ lệ phản hồi >= 60%.
-    Trả về DataFrame các lớp chưa đạt tỷ lệ phản hồi.
+    Kiểm tra tỷ lệ phản hồi từng lớp và tính tỷ lệ lớp thành công.
+    
+    Returns:
+        gpa_with_status: DataFrame gốc + cột 'Tỷ lệ phản hồi (%)' và 'Đạt phản hồi 60%'
+        low_response_df: DataFrame các lớp có tỷ lệ < 60%
+        summary_stats: dict chứa total_classes, classes_success, classes_fail, success_rate
     """
-    # Tìm cột tỷ lệ phản hồi
+    df = gpa_df.copy()
+
+    # Xác định cột tỷ lệ phản hồi
     rate_col = None
-    for col in gpa_df.columns:
-        col_lower = col.strip().lower()
-        if 'tỷ lệ' in col_lower or 'ti le' in col_lower or 'tỉ lệ' in col_lower or 'rate' in col_lower:
+    for col in df.columns:
+        if 'tỷ lệ' in col.lower() and 'feedback' in col.lower():
+            rate_col = col
+            break
+        elif 'tỷ lệ' in col.lower() and 'sv' in col.lower():
+            rate_col = col
+            break
+        elif 'tỷ lệ' in col.lower() and 'phản hồi' in col.lower():
             rate_col = col
             break
 
-    if not rate_col:
+    if rate_col is None:
         # Thử tính từ Số SV đã feedback / Số SV lớp
         sv_fb_col = None
-        sv_lop_col = None
-        for col in gpa_df.columns:
-            col_lower = col.strip().lower()
-            if 'số sv đã' in col_lower or 'so sv da' in col_lower or 'feedback' in col_lower.replace(' ', ''):
+        sv_total_col = None
+        for col in df.columns:
+            if 'số sv đã feedback' in col.lower() or 'sv đã feedback' in col.lower():
                 sv_fb_col = col
-            if 'số sv lớp' in col_lower or 'so sv lop' in col_lower or col_lower == 'số sv lớp':
-                sv_lop_col = col
-
-        if sv_fb_col and sv_lop_col:
-            gpa_df['_Tỷ_lệ_phản_hồi'] = pd.to_numeric(gpa_df[sv_fb_col], errors='coerce') / pd.to_numeric(gpa_df[sv_lop_col], errors='coerce')
-            rate_col = '_Tỷ_lệ_phản_hồi'
+            elif 'số sv lớp' in col.lower() or 'sv lớp' in col.lower():
+                sv_total_col = col
+        if sv_fb_col and sv_total_col:
+            df['Tỷ lệ phản hồi (%)'] = round(
+                pd.to_numeric(df[sv_fb_col], errors='coerce') /
+                pd.to_numeric(df[sv_total_col], errors='coerce') * 100, 1
+            )
         else:
-            return pd.DataFrame(), None
-
-    # Chuyển đổi tỷ lệ
-    gpa_df['_rate_numeric'] = pd.to_numeric(gpa_df[rate_col], errors='coerce')
-
-    # Nếu giá trị > 1 thì đang ở dạng % (vd: 63%), cần chia 100
-    # Nếu giá trị <= 1 thì đang ở dạng thập phân (vd: 0.63)
-    if gpa_df['_rate_numeric'].max() > 1:
-        gpa_df['_rate_decimal'] = gpa_df['_rate_numeric'] / 100
+            # Không tìm được cột → trả về trống
+            df['Tỷ lệ phản hồi (%)'] = None
+            df['Đạt phản hồi 60%'] = None
+            return df, pd.DataFrame(), {
+                'total_classes': len(df),
+                'classes_success': 0,
+                'classes_fail': 0,
+                'success_rate': 0
+            }
     else:
-        gpa_df['_rate_decimal'] = gpa_df['_rate_numeric']
+        # Chuyển đổi giá trị cột tỷ lệ
+        df['Tỷ lệ phản hồi (%)'] = pd.to_numeric(
+            df[rate_col].astype(str).str.replace('%', '').str.replace(',', '.'),
+            errors='coerce'
+        )
+        # Nếu giá trị <= 1 thì nhân 100 (dạng 0.66 thay vì 66)
+        if df['Tỷ lệ phản hồi (%)'].max() <= 1.5:
+            df['Tỷ lệ phản hồi (%)'] = round(df['Tỷ lệ phản hồi (%)'] * 100, 1)
 
-    # Lọc lớp có tỷ lệ phản hồi < 60%
-    low_response = gpa_df[gpa_df['_rate_decimal'] < 0.6].copy()
-    low_response = low_response.drop(columns=['_rate_numeric', '_rate_decimal', '_Tỷ_lệ_phản_hồi'], errors='ignore')
+    # Đánh dấu đạt / không đạt
+    df['Đạt phản hồi 60%'] = df['Tỷ lệ phản hồi (%)'] >= 60
 
-    # Cleanup
-    gpa_df.drop(columns=['_rate_numeric', '_rate_decimal', '_Tỷ_lệ_phản_hồi'], errors='ignore', inplace=True)
+    # Lọc lớp không đạt
+    low_response_df = df[df['Đạt phản hồi 60%'] == False].copy()
 
-    return low_response, rate_col
+    # Tính tỷ lệ lớp thành công
+    total_classes = len(df)
+    classes_success = len(df[df['Đạt phản hồi 60%'] == True])
+    classes_fail = total_classes - classes_success
+    success_rate = round(classes_success / total_classes * 100, 1) if total_classes > 0 else 0
+
+    summary_stats = {
+        'total_classes': total_classes,
+        'classes_success': classes_success,
+        'classes_fail': classes_fail,
+        'success_rate': success_rate,
+    }
+
+    return df, low_response_df, summary_stats
 
 
-def generate_summary(gpa_df, report1, report2, report3, report4, low_response, lecturer_pct):
+# ============================================================
+#  4. GENERATE REPORTS
+# ============================================================
+
+def generate_reports(schedule_df, gpa_df):
     """
-    Tạo sheet tổng kết thông tin chung.
+    Tạo 3 báo cáo chính:
+    - report1: Lớp có GPA < 3.4
+    - report2: GV đủ 30% nhưng chưa được lấy GPA
+    - report3: GV dưới 30% nhưng bị lấy GPA
+    
+    Returns: (report1, report2, report3, error_message)
     """
-    # Tổng số lớp trong GPA
-    gpa_lop_col = None
-    for col in gpa_df.columns:
-        if col.strip().lower() in ['lớp', 'lop', 'groupname']:
-            gpa_lop_col = col
-            break
+    try:
+        # Tính tỷ lệ GV
+        lecturer_pct = calculate_lecturer_percentage(schedule_df)
 
-    total_classes_gpa = len(gpa_df) if not gpa_df.empty else 0
+        # Xác định cột matching
+        # Schedule: GroupName, SubjectCode, Lecturer
+        # GPA: GV (hoặc Lecturer), Lớp (hoặc GroupName), Môn (hoặc SubjectCode)
 
-    # Tổng số lớp/GV trong lịch kỳ đủ ĐK 30%
-    total_eligible = len(lecturer_pct[lecturer_pct['Đủ_ĐK_30%'] == True]) if not lecturer_pct.empty else 0
+        # Tìm cột trong GPA
+        gpa_cols = gpa_df.columns.tolist()
 
-    # Tỷ lệ lớp lấy GPA thành công
-    # = Số lớp đã lấy GPA có tỷ lệ phản hồi >= 60% / Tổng lớp đã lấy GPA
-    low_response_count = len(low_response) if low_response is not None and not low_response.empty else 0
-    classes_success = total_classes_gpa - low_response_count
-    success_rate = round(classes_success / total_classes_gpa * 100, 1) if total_classes_gpa > 0 else 0
+        gv_col = None
+        for col in gpa_cols:
+            if col.upper() == 'GV' or col == 'Lecturer':
+                gv_col = col
+                break
+
+        lop_col = None
+        for col in gpa_cols:
+            if col == 'Lớp' or col == 'GroupName':
+                lop_col = col
+                break
+
+        mon_col = None
+        for col in gpa_cols:
+            if col == 'Môn' or col == 'SubjectCode':
+                mon_col = col
+                break
+
+        gpa_score_col = None
+        for col in gpa_cols:
+            if col.upper() == 'GPA':
+                gpa_score_col = col
+                break
+
+        if not all([gv_col, lop_col, mon_col, gpa_score_col]):
+            missing = []
+            if not gv_col: missing.append("GV")
+            if not lop_col: missing.append("Lớp")
+            if not mon_col: missing.append("Môn")
+            if not gpa_score_col: missing.append("GPA")
+            return None, None, None, f"Thiếu cột trong file GPA: {', '.join(missing)}"
+
+        # ── REPORT 1: GPA < 3.4 ──
+        gpa_df[gpa_score_col] = pd.to_numeric(gpa_df[gpa_score_col], errors='coerce')
+        report1 = gpa_df[gpa_df[gpa_score_col] < 3.4].copy()
+
+        # ── REPORT 2: GV đủ 30% nhưng chưa lấy GPA ──
+        eligible = lecturer_pct[lecturer_pct['Đủ ĐK 30%'] == True].copy()
+
+        # Tạo key để so sánh
+        eligible['_key'] = (
+            eligible['GroupName'].astype(str).str.strip() + '|' +
+            eligible['SubjectCode'].astype(str).str.strip() + '|' +
+            eligible['Lecturer'].astype(str).str.strip()
+        )
+
+        gpa_df['_key'] = (
+            gpa_df[lop_col].astype(str).str.strip() + '|' +
+            gpa_df[mon_col].astype(str).str.strip() + '|' +
+            gpa_df[gv_col].astype(str).str.strip()
+        )
+
+        gpa_keys = set(gpa_df['_key'].tolist())
+        report2 = eligible[~eligible['_key'].isin(gpa_keys)].copy()
+        report2 = report2.drop(columns=['_key'], errors='ignore')
+
+        # ── REPORT 3: GV dưới 30% nhưng bị lấy GPA ──
+        not_eligible = lecturer_pct[lecturer_pct['Đủ ĐK 30%'] == False].copy()
+        not_eligible['_key'] = (
+            not_eligible['GroupName'].astype(str).str.strip() + '|' +
+            not_eligible['SubjectCode'].astype(str).str.strip() + '|' +
+            not_eligible['Lecturer'].astype(str).str.strip()
+        )
+        not_eligible_keys = set(not_eligible['_key'].tolist())
+        report3 = gpa_df[gpa_df['_key'].isin(not_eligible_keys)].copy()
+        report3 = report3.drop(columns=['_key'], errors='ignore')
+
+        # Clean up
+        gpa_df.drop(columns=['_key'], errors='ignore', inplace=True)
+
+        return report1, report2, report3, None
+
+    except Exception as e:
+        return None, None, None, str(e)
+
+
+# ============================================================
+#  5. GENERATE SUMMARY SHEET
+# ============================================================
+
+def generate_summary(gpa_stats, response_stats):
+    """
+    Tạo sheet tổng kết toàn bộ thông tin đã check.
+    """
+    today = datetime.now().strftime('%d/%m/%Y')
 
     summary_data = {
         'Chỉ số': [
+            'Ngày kiểm tra',
+            '---',
+            'TỔNG QUAN GPA',
             'Tổng số lớp đã lấy GPA',
-            'Tổng GV/Lớp đủ ĐK 30% (theo lịch kỳ)',
-            'Số lớp GPA dưới 3.4',
-            'Số GV đủ 30% chưa lấy GPA',
-            'Số lớp dưới 30% bị lấy GPA',
-            'Số lớp GPA không có trong lịch kỳ',
-            'Số lớp tỷ lệ phản hồi < 60%',
-            'Số lớp tỷ lệ phản hồi >= 60%',
-            'Tỷ lệ lớp lấy GPA thành công (phản hồi >= 60%)',
-            'Đạt chuẩn tỷ lệ lớp thành công >= 95%'
+            'Số lớp GPA ≥ 3.4 (Đạt)',
+            'Số lớp GPA < 3.4 (Không đạt)',
+            '---',
+            'KIỂM TRA ĐIỀU KIỆN 30%',
+            'Số GV/lớp đủ 30% nhưng chưa lấy GPA',
+            'Số GV/lớp dưới 30% nhưng bị lấy GPA (vi phạm)',
+            '---',
+            'TỶ LỆ PHẢN HỒI',
+            'Tổng số lớp kiểm tra phản hồi',
+            'Số lớp đạt tỷ lệ phản hồi ≥ 60%',
+            'Số lớp KHÔNG đạt tỷ lệ phản hồi < 60%',
+            'Tỷ lệ lớp lấy GPA thành công',
+            'Ngưỡng yêu cầu',
+            'Kết luận tỷ lệ thành công',
         ],
         'Giá trị': [
-            total_classes_gpa,
-            total_eligible,
-            len(report1) if report1 is not None and not report1.empty else 0,
-            len(report2) if report2 is not None and not report2.empty else 0,
-            len(report3) if report3 is not None and not report3.empty else 0,
-            len(report4) if report4 is not None and not report4.empty else 0,
-            low_response_count,
-            classes_success,
-            f"{success_rate}%",
-            "✅ ĐẠT" if success_rate >= 95 else "❌ CHƯA ĐẠT"
+            today,
+            '',
+            '',
+            gpa_stats.get('total_gpa_classes', 0),
+            gpa_stats.get('gpa_pass', 0),
+            gpa_stats.get('gpa_low', 0),
+            '',
+            '',
+            gpa_stats.get('eligible_no_gpa', 0),
+            gpa_stats.get('not_eligible_has_gpa', 0),
+            '',
+            '',
+            response_stats.get('total_classes', 0),
+            response_stats.get('classes_success', 0),
+            response_stats.get('classes_fail', 0),
+            f"{response_stats.get('success_rate', 0)}%",
+            '≥ 95%',
+            'ĐẠT' if response_stats.get('success_rate', 0) >= 95 else 'KHÔNG ĐẠT',
         ]
     }
 
     return pd.DataFrame(summary_data)
 
 
-def generate_reports(schedule_df, gpa_df):
+# ============================================================
+#  6. EXPORT TO EXCEL
+# ============================================================
+
+def export_reports_to_excel(report1, report2, report3, gpa_merged, low_response_df, summary_df):
     """
-    Tạo 4 báo cáo:
-    1. Lớp có GPA < 3.4
-    2. Lớp đủ ĐK >=30% nhưng CHƯA lấy GPA
-    3. Lớp dưới 30% nhưng BỊ lấy GPA
-    4. Lớp có trong GPA nhưng KHÔNG có trong lịch kỳ
-    """
-
-    # --- Tính tỷ lệ GV ---
-    lecturer_pct = calculate_lecturer_percentage(schedule_df)
-
-    # Lấy danh sách GV đủ ĐK 30%
-    eligible = lecturer_pct[lecturer_pct['Đủ_ĐK_30%'] == True][['GroupName', 'SubjectCode', 'Lecturer', 'Tỷ_Lệ_%']].copy()
-    eligible.rename(columns={'GroupName': 'Lớp', 'Lecturer': 'GV'}, inplace=True)
-
-    # Lấy danh sách GV không đủ ĐK 30%
-    not_eligible = lecturer_pct[lecturer_pct['Đủ_ĐK_30%'] == False][['GroupName', 'SubjectCode', 'Lecturer', 'Tỷ_Lệ_%']].copy()
-    not_eligible.rename(columns={'GroupName': 'Lớp', 'Lecturer': 'GV'}, inplace=True)
-
-    # --- Chuẩn hóa cột trong GPA ---
-    gpa_lop_col = None
-    gpa_gv_col = None
-
-    for col in gpa_df.columns:
-        if col.strip().lower() in ['lớp', 'lop', 'groupname']:
-            gpa_lop_col = col
-        if col.strip().lower() in ['gv', 'lecturer']:
-            gpa_gv_col = col
-
-    if not gpa_lop_col or not gpa_gv_col:
-        return None, None, None, None, None, None, "Không tìm thấy cột Lớp hoặc GV trong file GPA"
-
-    # Tạo key để match
-    gpa_df['_key'] = gpa_df[gpa_lop_col].astype(str).str.strip() + '|' + gpa_df[gpa_gv_col].astype(str).str.strip()
-    eligible['_key'] = eligible['Lớp'].astype(str).str.strip() + '|' + eligible['GV'].astype(str).str.strip()
-    not_eligible['_key'] = not_eligible['Lớp'].astype(str).str.strip() + '|' + not_eligible['GV'].astype(str).str.strip()
-
-    # Tạo key từ lịch kỳ (tất cả GV/Lớp)
-    all_schedule_keys = set(
-        lecturer_pct['GroupName'].astype(str).str.strip() + '|' + lecturer_pct['Lecturer'].astype(str).str.strip()
-    )
-
-    # --- BÁO CÁO 1: GPA < 3.4 ---
-    gpa_col = None
-    for col in gpa_df.columns:
-        if col.strip().upper() == 'GPA':
-            gpa_col = col
-            break
-
-    if gpa_col:
-        gpa_df[gpa_col] = pd.to_numeric(gpa_df[gpa_col], errors='coerce')
-        report1 = gpa_df[gpa_df[gpa_col] < 3.4].copy()
-        report1 = report1.drop(columns=['_key'], errors='ignore')
-    else:
-        report1 = pd.DataFrame()
-
-    # --- BÁO CÁO 2: Đủ ĐK >=30% nhưng CHƯA lấy GPA ---
-    gpa_keys = set(gpa_df['_key'].tolist())
-    eligible_not_surveyed = eligible[~eligible['_key'].isin(gpa_keys)].copy()
-    eligible_not_surveyed = eligible_not_surveyed.drop(columns=['_key'], errors='ignore')
-
-    # --- BÁO CÁO 3: Dưới 30% nhưng BỊ lấy GPA ---
-    not_eligible_but_surveyed = gpa_df[gpa_df['_key'].isin(set(not_eligible['_key'].tolist()))].copy()
-    not_eligible_but_surveyed = not_eligible_but_surveyed.drop(columns=['_key'], errors='ignore')
-
-    # --- BÁO CÁO 4: Có trong GPA nhưng KHÔNG có trong lịch kỳ ---
-    gpa_not_in_schedule = gpa_df[~gpa_df['_key'].isin(all_schedule_keys)].copy()
-    gpa_not_in_schedule = gpa_not_in_schedule.drop(columns=['_key'], errors='ignore')
-
-    # --- Kiểm tra tỷ lệ phản hồi ---
-    low_response, rate_col = check_response_rate(gpa_df)
-
-    # --- Tổng kết ---
-    summary = generate_summary(gpa_df, report1, report2, report3, report4, low_response, lecturer_pct)
-
-    # Cleanup
-    gpa_df.drop(columns=['_key'], errors='ignore', inplace=True)
-
-    return report1, eligible_not_surveyed, not_eligible_but_surveyed, gpa_not_in_schedule, low_response, summary, None
-
-
-def export_gpa_merged(gpa_df):
-    """
-    Xuất file tổng hợp GPA (có Source_File, Source_Sheet).
+    Xuất báo cáo ra file Excel với nhiều sheets:
+    - Sheet 1: Tổng kết
+    - Sheet 2: Tổng hợp GPA (có Source_File, Source_Sheet)
+    - Sheet 3: GPA dưới 3.4
+    - Sheet 4: Đủ 30% chưa lấy GPA
+    - Sheet 5: Dưới 30% bị lấy GPA
+    - Sheet 6: Lớp có tỷ lệ phản hồi < 60%
     """
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        gpa_df.to_excel(writer, index=False, sheet_name='Tổng hợp GPA')
-    output.seek(0)
-    return output
 
-
-def get_merged_filename():
-    """Trả về tên file tổng hợp GPA với ngày hiện tại."""
-    today = datetime.now().strftime('%Y%m%d')
-    return f"{today} Tổng hợp GPA.xlsx"
-
-
-def export_reports_to_excel(report1, report2, report3, report4, low_response, summary):
-    """
-    Xuất báo cáo ra 1 file Excel với nhiều sheets.
-    Sheet đầu tiên là Tổng kết.
-    """
-    output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # Sheet 1: Tổng kết
-        if summary is not None and not summary.empty:
-            summary.to_excel(writer, index=False, sheet_name='Tổng kết')
+        if summary_df is not None and not summary_df.empty:
+            summary_df.to_excel(writer, sheet_name='Tổng kết', index=False)
         else:
             pd.DataFrame({'Thông báo': ['Không có dữ liệu tổng kết']}).to_excel(
-                writer, index=False, sheet_name='Tổng kết')
+                writer, sheet_name='Tổng kết', index=False)
 
-        # Sheet 2: GPA dưới 3.4
+        # Sheet 2: Tổng hợp GPA
+        if gpa_merged is not None and not gpa_merged.empty:
+            gpa_merged.to_excel(writer, sheet_name='Tổng hợp GPA', index=False)
+        else:
+            pd.DataFrame({'Thông báo': ['Không có dữ liệu GPA']}).to_excel(
+                writer, sheet_name='Tổng hợp GPA', index=False)
+
+        # Sheet 3: GPA dưới 3.4
         if report1 is not None and not report1.empty:
-            report1.to_excel(writer, index=False, sheet_name='GPA dưới 3.4')
+            report1.to_excel(writer, sheet_name='GPA dưới 3.4', index=False)
         else:
             pd.DataFrame({'Thông báo': ['Không có lớp nào GPA dưới 3.4']}).to_excel(
-                writer, index=False, sheet_name='GPA dưới 3.4')
+                writer, sheet_name='GPA dưới 3.4', index=False)
 
-        # Sheet 3: Đủ 30% chưa lấy GPA
+        # Sheet 4: Đủ 30% chưa lấy GPA
         if report2 is not None and not report2.empty:
-            report2.to_excel(writer, index=False, sheet_name='Đủ 30% chưa lấy GPA')
+            report2.to_excel(writer, sheet_name='Đủ 30% chưa lấy GPA', index=False)
         else:
             pd.DataFrame({'Thông báo': ['Tất cả GV đủ ĐK đã được lấy GPA']}).to_excel(
-                writer, index=False, sheet_name='Đủ 30% chưa lấy GPA')
+                writer, sheet_name='Đủ 30% chưa lấy GPA', index=False)
 
-        # Sheet 4: Dưới 30% bị lấy GPA
+        # Sheet 5: Dưới 30% bị lấy GPA
         if report3 is not None and not report3.empty:
-            report3.to_excel(writer, index=False, sheet_name='Dưới 30% bị lấy GPA')
+            report3.to_excel(writer, sheet_name='Dưới 30% bị lấy GPA', index=False)
         else:
-            pd.DataFrame({'Thông báo': ['Không có lớp nào dưới 30% bị lấy GPA']}).to_excel(
-                writer, index=False, sheet_name='Dưới 30% bị lấy GPA')
+            pd.DataFrame({'Thông báo': ['Không có lớp nào vi phạm']}).to_excel(
+                writer, sheet_name='Dưới 30% bị lấy GPA', index=False)
 
-        # Sheet 5: GPA không có trong lịch kỳ
-        if report4 is not None and not report4.empty:
-            report4.to_excel(writer, index=False, sheet_name='GPA không có trong lịch kỳ')
+        # Sheet 6: Lớp phản hồi dưới 60%
+        if low_response_df is not None and not low_response_df.empty:
+            low_response_df.to_excel(writer, sheet_name='Phản hồi dưới 60%', index=False)
         else:
-            pd.DataFrame({'Thông báo': ['Tất cả lớp lấy GPA đều có trong lịch kỳ']}).to_excel(
-                writer, index=False, sheet_name='GPA không có trong lịch kỳ')
-
-        # Sheet 6: Lớp tỷ lệ phản hồi < 60%
-        if low_response is not None and not low_response.empty:
-            low_response.to_excel(writer, index=False, sheet_name='Phản hồi dưới 60%')
-        else:
-            pd.DataFrame({'Thông báo': ['Tất cả lớp đều đạt tỷ lệ phản hồi >= 60%']}).to_excel(
-                writer, index=False, sheet_name='Phản hồi dưới 60%')
+            pd.DataFrame({'Thông báo': ['Tất cả lớp đều đạt tỷ lệ phản hồi ≥ 60%']}).to_excel(
+                writer, sheet_name='Phản hồi dưới 60%', index=False)
 
     output.seek(0)
-    return output
-
-
-def get_report_filename():
-    """Trả về tên file báo cáo với ngày hiện tại."""
-    today = datetime.now().strftime('%Y%m%d')
-    return f"{today} Result check GPA.xlsx"
+    return output.getvalue()
