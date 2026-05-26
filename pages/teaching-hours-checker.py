@@ -390,51 +390,23 @@ def run_check(files_lich_ky, files_teaching, files_cham_cong, file_gv, files_co_
             if df_cham_cong.empty:
                 st.error("❌ Không đọc được dữ liệu từ file Chấm công!")
                 return
-                    # ===== DEBUG =====
-        st.subheader("🔍 DEBUG - Kiểm tra dữ liệu")
-        st.write(f"**Lịch kỳ:** {len(df_lich_ky)} dòng")
+       # Đối sánh
+        progress.progress(70, text="Đang đối sánh giờ dạy...")
+        st.write("DEBUG LK:", len(df_lich_ky), "rows")
+        st.write("DEBUG CC:", len(df_cham_cong), "rows")
+        st.write("DEBUG TS:", len(df_teaching), "rows")
+        st.write("DEBUG GV:", len(df_gv), "rows")
         if not df_lich_ky.empty:
-            st.write(f"- Date dtype: {df_lich_ky['Date'].dtype}")
-            st.write(f"- Date mẫu: {df_lich_ky['Date'].head(3).tolist()}")
-            st.write(f"- Date min: {df_lich_ky['Date'].min()}, max: {df_lich_ky['Date'].max()}")
-            st.write(f"- Lecturer mẫu: {df_lich_ky['Lecturer'].head(3).tolist()}")
-        
-        st.write(f"**Chấm công:** {len(df_cham_cong)} dòng")
+            st.write("Date dtype:", df_lich_ky['Date'].dtype)
+            st.write("Date head:", df_lich_ky['Date'].head(3).tolist())
+            st.write("Lecturer head:", df_lich_ky['Lecturer'].head(3).tolist())
         if not df_cham_cong.empty:
-            st.write(f"- Thang: {df_cham_cong['Thang'].unique().tolist()}")
-            st.write(f"- FromDate: {df_cham_cong['FromDate'].iloc[0]}")
-            st.write(f"- ToDate: {df_cham_cong['ToDate'].iloc[0]}")
-            st.write(f"- ID mẫu: {df_cham_cong['ID'].head(3).tolist()}")
-        
-        st.write(f"**Teaching Summaries:** {len(df_teaching)} dòng")
-        if not df_teaching.empty:
-            st.write(f"- Teacher mẫu: {df_teaching['Teacher'].head(3).tolist()}")
-        
-        st.write(f"**Danh sách GV:** {len(df_gv)} dòng")
-        if not df_gv.empty:
-            st.write(f"- ID mẫu: {df_gv['ID'].head(3).tolist()}")
-            st.write(f"- AccountFE mẫu: {df_gv['AccountFE'].head(3).tolist()}")
-        
+            st.write("CC Thang:", df_cham_cong['Thang'].unique().tolist())
+            st.write("CC FromDate:", df_cham_cong['FromDate'].iloc[0])
+            st.write("CC ToDate:", df_cham_cong['ToDate'].iloc[0])
         st.stop()
-        # ===== END DEBUG =====
-
-            # Đối sánh
-            progress.progress(70, text="Đang đối sánh giờ dạy...")
-            df_doi_sanh = doi_sanh_gio_day(df_lich_ky, df_teaching, df_cham_cong, df_gv)
+        df_doi_sanh = doi_sanh_gio_day(df_lich_ky, df_teaching, df_cham_cong, df_gv)
             
-            # WasNot Taken
-            progress.progress(80, text="Tổng hợp WasNot Taken...")
-            df_wasnot = get_wasnot_taken_detail(df_teaching)
-            
-            # Giờ cơ hữu (nếu có upload)
-            df_co_huu = None
-            if files_co_huu:
-                progress.progress(90, text="Tính giờ dạy cơ hữu...")
-                df_lich_ky_full = read_lich_ky(files_co_huu)
-                if not df_lich_ky_full.empty:
-                    df_co_huu, tong_co_huu, tong_all = calculate_gio_co_huu(
-                        df_lich_ky_full, df_cham_cong, df_gv
-                    )
             
             progress.progress(100, text="Hoàn tất!")
             
