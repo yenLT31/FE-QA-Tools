@@ -24,7 +24,7 @@ def read_lich_ky(files):
     all_data = []
     for file in files:
         try:
-            df = pd.read_excel(file)
+            df = pd.read_excel(file, dtype=str)
             # Chuẩn hóa tên cột (strip whitespace)
             df.columns = df.columns.str.strip()
             all_data.append(df)
@@ -234,7 +234,6 @@ def read_cham_cong(files):
                     break
             
             if target_sheet is None:
-                # Dùng sheet đầu tiên nếu không tìm thấy
                 target_sheet = xl.sheet_names[0]
             
             df = pd.read_excel(file, sheet_name=target_sheet, header=None)
@@ -249,14 +248,11 @@ def read_cham_cong(files):
                 for col_idx, val in enumerate(row.values):
                     if pd.notna(val):
                         val_str = str(val).strip()
-                        # Tìm dòng NĂM hoặc dòng chứa thông tin "Từ ... đến ..."
                         if 'NĂM' in val_str.upper() or 'NAM' in val_str.upper():
-                            # Giá trị có thể ở cùng dòng cột tiếp theo
                             for next_col in range(col_idx + 1, len(row.values)):
                                 next_val = row.values[next_col]
                                 if pd.notna(next_val):
                                     next_str = str(next_val).strip()
-                                    # Parse: "01/2025 (Từ 16/12/2024 đến 11/01/2025)"
                                     thang_match = re.match(r'(\d{2}/\d{4})', next_str)
                                     if thang_match:
                                         thang = thang_match.group(1)
@@ -271,11 +267,9 @@ def read_cham_cong(files):
                                     break
             
             if thang is None:
-                # Thử parse từ tên file hoặc bỏ qua
                 continue
             
             # Tìm vị trí các cột quan trọng
-            # Duyệt qua nhiều dòng header để tìm cột
             id_col = None
             ho_ten_col = None
             don_vi_col = None
@@ -290,22 +284,20 @@ def read_cham_cong(files):
                 for col_idx, val in enumerate(row.values):
                     if pd.notna(val):
                         val_str = str(val).strip().lower()
-                        if val_str == 'stt':
-                            pass  # Bỏ qua cột STT
-                        elif val_str == 'id':
+                        if val_str == 'id':
                             id_col = col_idx
                             header_end_row = idx
-                        elif 'họ tên' in val_str or 'ho ten' in val_str or val_str == 'họ tên':
+                        elif 'họ tên' in val_str or 'ho ten' in val_str or val_str == 'hỌ tÊn':
                             ho_ten_col = col_idx
-                        elif 'đơn vị' in val_str or 'don vi' in val_str:
+                        elif 'đơn vị' in val_str or 'don vi' in val_str or val_str == 'đơn vị':
                             don_vi_col = col_idx
                         elif 'bộ môn' in val_str or 'bo mon' in val_str:
                             bo_mon_col = col_idx
                         elif 'đối tượng' in val_str or 'doi tuong' in val_str:
                             doi_tuong_col = col_idx
-                        elif 'hệ số 1.3' in val_str or 'he so 1.3' in val_str or val_str == 'hệ số 1.3':
+                        elif 'hệ số 1.3' in val_str or 'he so 1.3' in val_str:
                             hs13_col = col_idx
-                        elif ('hệ số 1' in val_str or 'he so 1' in val_str or val_str == 'hệ số 1') and '1.3' not in val_str:
+                        elif ('hệ số 1' in val_str or 'he so 1' in val_str) and '1.3' not in val_str:
                             hs1_col = col_idx
             
             if id_col is None or hs1_col is None:
@@ -315,15 +307,19 @@ def read_cham_cong(files):
             data_start = (header_end_row + 1) if header_end_row else 0
             for idx in range(data_start, min(data_start + 10, len(df))):
                 val = df.iloc[idx, id_col]
-                if pd.notna(val) and re.match(r'^\d+$', str(val).strip()):
-                    data_start = idx
-                    break
+                if pd.notna(val):
+                    val_clean = re.sub(r'\.0$', '', str(val).strip())
+                    if re.match(r'^\d+$', val_clean):
+                        data_start = idx
+                        break
             
             # Đọc từng dòng dữ liệu
             for idx in range(data_start, len(df)):
                 row = df.iloc[idx]
                 
                 id_val = str(row.iloc[id_col]).strip() if pd.notna(row.iloc[id_col]) else ''
+                # Loại bỏ .0 nếu pandas đọc số thành float
+                id_val = re.sub(r'\.0$', '', id_val)
                 
                 # Bỏ qua dòng trống hoặc không phải ID số
                 if not id_val or id_val == 'nan' or not re.match(r'^\d+$', id_val):
@@ -389,31 +385,45 @@ def read_danh_sach_gv(file):
     Đọc file Danh sách GV (mapping).
     Trả về DataFrame: ID, TeacherFullname, AccountFE, Major, Note
     """
-    df = pd.read_excel(file)
+    df = pd.read_excel(file, dtype=str)
     df.columns = df.columns.str.strip()
     
     # Chuẩn hóa tên cột
     col_mapping = {}
+    drop_cols = []
     for col in df.columns:
         col_lower = col.strip().lower()
-        if col_lower == 'id':
+        if col_lower in ['no.', 'no', 'stt']:
+            drop_cols.append(col)
+        elif col_lower == 'id':
             col_mapping[col] = 'ID'
-        elif 'fullname' in col_lower or 'full name' in col_lower or 'họ tên' in col_lower or 'teacher' in col_lower:
+        elif 'fullname' in col_lower or 'full name' in col_lower or "teacher" in col_lower:
             col_mapping[col] = 'TeacherFullname'
         elif 'accountfe' in col_lower or 'account' in col_lower:
             col_mapping[col] = 'AccountFE'
-        elif 'major' in col_lower or 'bộ môn' in col_lower:
+        elif 'major' in col_lower:
             col_mapping[col] = 'Major'
-        elif 'note' in col_lower or 'ghi chú' in col_lower:
+        elif 'note' in col_lower:
             col_mapping[col] = 'Note'
+    
+    # Xóa cột STT
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
     
     df = df.rename(columns=col_mapping)
     
     # Chuẩn hóa
     if 'ID' in df.columns:
         df['ID'] = df['ID'].astype(str).str.strip()
+        # Loại bỏ .0 nếu pandas đọc thành float
+        df['ID'] = df['ID'].str.replace(r'\.0$', '', regex=True)
+        # Loại bỏ dòng ID trống hoặc nan
+        df = df[df['ID'].notna() & (df['ID'] != '') & (df['ID'] != 'nan')]
+    
     if 'AccountFE' in df.columns:
         df['AccountFE'] = df['AccountFE'].astype(str).str.strip().str.lower()
+        # Loại bỏ dòng AccountFE trống
+        df = df[df['AccountFE'].notna() & (df['AccountFE'] != '') & (df['AccountFE'] != 'nan')]
     
     return df
 
@@ -485,6 +495,9 @@ def calculate_gio_fap(df_teaching_summaries, df_lich_ky, from_date, to_date):
     Giờ FAP = Σ từng lớp: (AllPlan - WasNotTaken) × giờ/buổi (theo TypeSlot của SubjectCode)
     Match TypeSlot qua SubjectCode từ lịch kỳ.
     """
+    if df_teaching_summaries.empty:
+        return pd.DataFrame(columns=['AccountFE', 'GioFAP'])
+    
     # Lọc Teaching Summaries theo khoảng ngày
     mask = (df_teaching_summaries['FromDate'] == from_date) & (df_teaching_summaries['ToDate'] == to_date)
     df_filtered = df_teaching_summaries[mask].copy()
@@ -540,6 +553,14 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
     """
     results = []
     
+    # Chuẩn hóa ID (loại bỏ .0, strip)
+    df_gv_mapping = df_gv_mapping.copy()
+    if 'ID' in df_gv_mapping.columns:
+        df_gv_mapping['ID'] = df_gv_mapping['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    
+    df_cham_cong = df_cham_cong.copy()
+    df_cham_cong['ID'] = df_cham_cong['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    
     # Lấy danh sách tháng từ chấm công
     months = df_cham_cong[['Thang', 'FromDate', 'ToDate']].drop_duplicates()
     
@@ -560,37 +581,45 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
         # Lấy giờ ĐT
         gio_dt = calculate_gio_dt(df_cham_cong, thang)
         
-        # Mapping: thêm AccountFE vào giờ ĐT qua danh sách GV
+        # === Tạo bảng master từ Danh sách GV ===
         if 'ID' in df_gv_mapping.columns and 'AccountFE' in df_gv_mapping.columns:
-            gio_dt = gio_dt.merge(
-                df_gv_mapping[['ID', 'AccountFE']],
-                on='ID',
-                how='left'
-            )
-        
-        if 'AccountFE' not in gio_dt.columns:
+            master = df_gv_mapping[['ID', 'AccountFE']].copy()
+            master = master.dropna(subset=['AccountFE'])
+            master['AccountFE'] = master['AccountFE'].astype(str).str.strip().str.lower()
+            # Loại bỏ AccountFE = 'nan'
+            master = master[master['AccountFE'] != 'nan']
+        else:
             continue
         
-        # Merge tất cả dựa trên AccountFE
-        merged = gio_dt.merge(gio_lich_ky, on='AccountFE', how='outer')
-        merged = merged.merge(gio_fap, on='AccountFE', how='outer')
-        
-        # Fill NaN = 0 cho cột giờ
-        merged['GioLichKy'] = merged['GioLichKy'].fillna(0)
-        merged['GioFAP'] = merged['GioFAP'].fillna(0)
-        merged['GioDayDT'] = merged['GioDayDT'].fillna(0)
-        
-        # Tính chênh lệch
-        merged['ChenhLech_LichKy_DT'] = merged['GioLichKy'] - merged['GioDayDT']
-        
-        # Kết quả TRUE/FALSE
-        merged['KetQua'] = (
-            (merged['GioLichKy'] == merged['GioFAP']) &
-            (merged['GioFAP'] == merged['GioDayDT'])
+        # Merge giờ ĐT vào master qua ID (chỉ lấy GV có trong chấm công)
+        master = master.merge(
+            gio_dt[['ID', 'HoTen', 'DonVi', 'BoMon', 'DoiTuong', 'GioDayDT']],
+            on='ID',
+            how='inner'
         )
         
-        merged['Thang'] = thang
-        results.append(merged)
+        # Merge giờ Lịch kỳ vào master qua AccountFE
+        master = master.merge(gio_lich_ky, on='AccountFE', how='left')
+        
+        # Merge giờ FAP vào master qua AccountFE
+        master = master.merge(gio_fap, on='AccountFE', how='left')
+        
+        # Fill NaN = 0 cho cột giờ
+        master['GioLichKy'] = master['GioLichKy'].fillna(0)
+        master['GioFAP'] = master['GioFAP'].fillna(0)
+        master['GioDayDT'] = master['GioDayDT'].fillna(0)
+        
+        # Tính chênh lệch
+        master['ChenhLech_LichKy_DT'] = master['GioLichKy'] - master['GioDayDT']
+        
+        # Kết quả TRUE/FALSE
+        master['KetQua'] = (
+            (master['GioLichKy'] == master['GioFAP']) &
+            (master['GioFAP'] == master['GioDayDT'])
+        )
+        
+        master['Thang'] = thang
+        results.append(master)
     
     if not results:
         return pd.DataFrame()
@@ -602,6 +631,9 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
                   'GioLichKy', 'GioFAP', 'GioDayDT', 'ChenhLech_LichKy_DT', 'KetQua']
     existing_cols = [c for c in cols_order if c in final.columns]
     final = final[existing_cols]
+    
+    # Sắp xếp theo Tháng, HoTen
+    final = final.sort_values(['Thang', 'HoTen']).reset_index(drop=True)
     
     return final
 
@@ -660,6 +692,14 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     gio_per_gv = df_calc.groupby('Lecturer')['Hours'].sum().reset_index()
     gio_per_gv.columns = ['AccountFE', 'TongGio']
     
+    # Chuẩn hóa ID
+    df_gv_mapping = df_gv_mapping.copy()
+    if 'ID' in df_gv_mapping.columns:
+        df_gv_mapping['ID'] = df_gv_mapping['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    
+    df_cham_cong = df_cham_cong.copy()
+    df_cham_cong['ID'] = df_cham_cong['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    
     # Lấy đối tượng từ chấm công (lấy unique theo ID)
     doi_tuong_mapping = df_cham_cong[['ID', 'DoiTuong', 'DonVi', 'BoMon']].drop_duplicates(subset=['ID'])
     
@@ -673,6 +713,10 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     
     if 'AccountFE' not in doi_tuong_mapping.columns:
         return pd.DataFrame(), 0, 0
+    
+    # Chuẩn hóa AccountFE
+    doi_tuong_mapping['AccountFE'] = doi_tuong_mapping['AccountFE'].astype(str).str.strip().str.lower()
+    doi_tuong_mapping = doi_tuong_mapping[doi_tuong_mapping['AccountFE'] != 'nan']
     
     # Merge giờ với đối tượng
     result = gio_per_gv.merge(
