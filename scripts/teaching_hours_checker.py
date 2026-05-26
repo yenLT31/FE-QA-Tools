@@ -2,6 +2,7 @@
 Teaching Hours Checker - Logic xử lý
 Kiểm soát giờ dạy GV: đối chiếu Lịch kỳ FAP, Teaching Summaries, Phiếu chấm công ĐT
 FPT Education QA Department
+© 2026 YenLT31
 """
 
 import pandas as pd
@@ -22,10 +23,14 @@ def read_lich_ky(files):
     """
     all_data = []
     for file in files:
-        df = pd.read_excel(file)
-        # Chuẩn hóa tên cột (strip whitespace)
-        df.columns = df.columns.str.strip()
-        all_data.append(df)
+        try:
+            df = pd.read_excel(file)
+            # Chuẩn hóa tên cột (strip whitespace)
+            df.columns = df.columns.str.strip()
+            all_data.append(df)
+        except Exception as e:
+            print(f"Lỗi đọc file lịch kỳ: {e}")
+            continue
     
     if not all_data:
         return pd.DataFrame()
@@ -56,156 +61,147 @@ def read_lich_ky(files):
 def read_teaching_summaries(files):
     """
     Đọc nhiều file Teaching Summaries FAP.
+    Mỗi file có thể có nhiều sheets (mỗi sheet là 1 tháng).
     Parse cấu trúc grouped (GV ở dòng riêng).
     Trả về DataFrame: Teacher, Group, Subject, AllPlan, WasNotTaken, FromDate, ToDate
     """
     all_data = []
     
     for file in files:
-        df = pd.read_excel(file, header=None)
-        
-        # Tìm From Date và To Date
-        from_date = None
-        to_date = None
-        header_row = None
-        
-        for idx, row in df.iterrows():
-            row_values = [str(v).strip().lower() for v in row.values if pd.notna(v)]
+        try:
+            # Đọc tất cả sheets trong file
+            xl = pd.ExcelFile(file)
             
-            # Tìm dòng From Date / To Date
-            if any('from date' in v for v in row_values):
-                header_row_date = idx
-                # Dòng tiếp theo chứa giá trị
-                if idx + 1 < len(df):
-                    date_row = df.iloc[idx + 1]
-                    from_date = date_row.iloc[0]
-                    to_date = date_row.iloc[1]
-            
-            # Tìm dòng From Date có giá trị cùng dòng
-            for col_idx, val in enumerate(row.values):
-                if pd.notna(val) and 'from date' in str(val).strip().lower():
-                    # Check nếu giá trị nằm ở dòng tiếp theo
-                    pass
-            
-            # Tìm header: Teacher, Group, Subject, All Plan...
-            if any('teacher' in v for v in row_values):
-                header_row = idx
-                break
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(file, sheet_name=sheet_name, header=None)
+                
+                # Bỏ qua sheet trống
+                if df.empty or len(df) < 5:
+                    continue
+                
+                # Tìm From Date và To Date
+                from_date = None
+                to_date = None
+                
+                for idx in range(min(10, len(df))):
+                    row = df.iloc[idx]
+                    row_str = [str(v).strip() for v in row.values if pd.notna(v)]
+                    row_str_lower = [s.lower() for s in row_str]
+                    
+                    if 'from date' in row_str_lower:
+                        # Dòng tiếp theo là giá trị
+                        if idx + 1 < len(df):
+                            next_row = df.iloc[idx + 1]
+                            from_date = pd.to_datetime(next_row.iloc[0], dayfirst=True, errors='coerce')
+                            to_date = pd.to_datetime(next_row.iloc[1], dayfirst=True, errors='coerce')
+                        break
+                
+                # Tìm header row (Teacher, Group, Subject, All Plan, WasNot Taken)
+                header_row_idx = None
+                for idx in range(min(15, len(df))):
+                    row = df.iloc[idx]
+                    row_str = [str(v).strip().lower() for v in row.values if pd.notna(v)]
+                    if 'teacher' in row_str and ('group' in row_str or 'class' in row_str):
+                        header_row_idx = idx
+                        break
+                
+                if header_row_idx is None:
+                    continue
+                
+                # Đọc lại với header đúng
+                df_data = df.iloc[header_row_idx + 1:].copy()
+                headers = df.iloc[header_row_idx].values
+                
+                # Xử lý duplicate column names
+                seen = {}
+                clean_headers = []
+                for h in headers:
+                    h_str = str(h).strip() if pd.notna(h) else 'unnamed'
+                    if h_str in seen:
+                        seen[h_str] += 1
+                        clean_headers.append(f"{h_str}_{seen[h_str]}")
+                    else:
+                        seen[h_str] = 0
+                        clean_headers.append(h_str)
+                
+                df_data.columns = clean_headers
+                
+                # Tìm cột tương ứng (lấy cột đầu tiên match)
+                teacher_col = None
+                group_col = None
+                subject_col = None
+                allplan_col = None
+                wasnot_col = None
+                
+                for col in df_data.columns:
+                    col_lower = str(col).strip().lower()
+                    if 'teacher' in col_lower and teacher_col is None:
+                        teacher_col = col
+                    elif 'group' in col_lower and group_col is None:
+                        group_col = col
+                    elif 'subject' in col_lower and subject_col is None:
+                        subject_col = col
+                    elif 'all plan' in col_lower and allplan_col is None:
+                        allplan_col = col
+                    elif ('wasnot' in col_lower or 'was not' in col_lower) and wasnot_col is None:
+                        wasnot_col = col
+                
+                # Parse grouped structure
+                current_teacher = None
+                records = []
+                
+                for idx, row in df_data.iterrows():
+                    teacher_val = str(row[teacher_col]).strip() if teacher_col and pd.notna(row[teacher_col]) else ''
+                    group_val = str(row[group_col]).strip() if group_col and pd.notna(row[group_col]) else ''
+                    subject_val = str(row[subject_col]).strip() if subject_col and pd.notna(row[subject_col]) else ''
+                    allplan_val = row[allplan_col] if allplan_col else None
+                    wasnot_val = str(row[wasnot_col]).strip() if wasnot_col and pd.notna(row[wasnot_col]) else ''
+                    
+                    # Loại bỏ giá trị 'nan'
+                    if teacher_val.lower() == 'nan':
+                        teacher_val = ''
+                    if group_val.lower() == 'nan':
+                        group_val = ''
+                    if subject_val.lower() == 'nan':
+                        subject_val = ''
+                    if wasnot_val.lower() == 'nan':
+                        wasnot_val = ''
+                    
+                    # Nếu có Teacher và không có Group → đây là dòng tên GV
+                    if teacher_val and not group_val:
+                        current_teacher = teacher_val.lower()
+                    # Nếu có Group và Subject → đây là dòng dữ liệu
+                    elif group_val and subject_val:
+                        # Parse số WasNotTaken từ text
+                        wasnot_count = 0
+                        if wasnot_val:
+                            match = re.search(r'(\d+)\s*slot', wasnot_val, re.IGNORECASE)
+                            if match:
+                                wasnot_count = int(match.group(1))
+                        
+                        # Parse AllPlan
+                        try:
+                            allplan_count = int(float(allplan_val)) if pd.notna(allplan_val) else 0
+                        except (ValueError, TypeError):
+                            allplan_count = 0
+                        
+                        records.append({
+                            'Teacher': current_teacher if current_teacher else '',
+                            'Group': group_val,
+                            'Subject': subject_val,
+                            'AllPlan': allplan_count,
+                            'WasNotTaken': wasnot_count,
+                            'WasNotTakenRaw': wasnot_val,
+                            'FromDate': from_date,
+                            'ToDate': to_date
+                        })
+                
+                if records:
+                    all_data.extend(records)
         
-        # Parse From Date / To Date từ cấu trúc file
-        # Dòng 4 thường là header "From Date", "To Date", "Campus"
-        # Dòng 5 là giá trị
-        for idx, row in df.iterrows():
-            first_val = str(row.iloc[0]).strip().lower() if pd.notna(row.iloc[0]) else ''
-            if 'from date' in first_val:
-                # Giá trị ở dòng tiếp theo
-                if idx + 1 < len(df):
-                    from_date = pd.to_datetime(df.iloc[idx + 1, 0], dayfirst=True, errors='coerce')
-                    to_date = pd.to_datetime(df.iloc[idx + 1, 1], dayfirst=True, errors='coerce')
-                break
-            # Hoặc From Date là label ở row này và giá trị cũng ở row này
-            for col_idx, val in enumerate(row.values):
-                if pd.notna(val) and str(val).strip().lower() == 'from date':
-                    from_date = pd.to_datetime(df.iloc[idx, col_idx], dayfirst=True, errors='coerce')
-                    break
-        
-        # Re-read: tìm chính xác hơn
-        # Thường dòng 4: "From Date" | "To Date" | "Campus" (header)
-        # Dòng 5: giá trị ngày
-        from_date = None
-        to_date = None
-        
-        for idx in range(min(10, len(df))):
-            row = df.iloc[idx]
-            row_str = [str(v).strip() for v in row.values if pd.notna(v)]
-            if 'From Date' in row_str or 'from date' in [s.lower() for s in row_str]:
-                # Dòng tiếp theo là giá trị
-                if idx + 1 < len(df):
-                    next_row = df.iloc[idx + 1]
-                    from_date = pd.to_datetime(next_row.iloc[0], dayfirst=True, errors='coerce')
-                    to_date = pd.to_datetime(next_row.iloc[1], dayfirst=True, errors='coerce')
-                break
-        
-        # Tìm header row (Teacher, Group, Subject, All Plan, WasNot Taken by Teacher)
-        header_row_idx = None
-        for idx in range(min(15, len(df))):
-            row = df.iloc[idx]
-            row_str = [str(v).strip().lower() for v in row.values if pd.notna(v)]
-            if 'teacher' in row_str and 'group' in row_str:
-                header_row_idx = idx
-                break
-        
-        if header_row_idx is None:
+        except Exception as e:
+            print(f"Lỗi đọc file Teaching Summaries: {e}")
             continue
-        
-        # Đọc lại với header đúng
-        df_data = df.iloc[header_row_idx + 1:].copy()
-        df_data.columns = df.iloc[header_row_idx].values
-        
-        # Chuẩn hóa tên cột
-        col_mapping = {}
-        for col in df_data.columns:
-            col_str = str(col).strip().lower()
-            if 'teacher' in col_str:
-                col_mapping[col] = 'Teacher'
-            elif 'group' in col_str:
-                col_mapping[col] = 'Group'
-            elif 'subject' in col_str:
-                col_mapping[col] = 'Subject'
-            elif 'all plan' in col_str:
-                col_mapping[col] = 'AllPlan'
-            elif 'wasnot' in col_str or 'was not' in col_str:
-                col_mapping[col] = 'WasNotTaken'
-        
-        df_data = df_data.rename(columns=col_mapping)
-        
-        # Chỉ giữ các cột cần
-        needed_cols = ['Teacher', 'Group', 'Subject', 'AllPlan', 'WasNotTaken']
-        existing_cols = [c for c in needed_cols if c in df_data.columns]
-        df_data = df_data[existing_cols].copy()
-        
-        # Parse grouped structure: Teacher ở dòng riêng
-        current_teacher = None
-        records = []
-        
-        for idx, row in df_data.iterrows():
-            teacher_val = str(row.get('Teacher', '')).strip() if pd.notna(row.get('Teacher', None)) else ''
-            group_val = str(row.get('Group', '')).strip() if pd.notna(row.get('Group', None)) else ''
-            subject_val = str(row.get('Subject', '')).strip() if pd.notna(row.get('Subject', None)) else ''
-            allplan_val = row.get('AllPlan', None)
-            wasnot_val = str(row.get('WasNotTaken', '')).strip() if pd.notna(row.get('WasNotTaken', None)) else ''
-            
-            # Nếu có Teacher và không có Group → đây là dòng tên GV
-            if teacher_val and not group_val:
-                current_teacher = teacher_val.lower()
-            # Nếu có Group và Subject → đây là dòng dữ liệu
-            elif group_val and subject_val:
-                # Parse số WasNotTaken từ text
-                wasnot_count = 0
-                if wasnot_val:
-                    match = re.search(r'(\d+)\s*slot', wasnot_val, re.IGNORECASE)
-                    if match:
-                        wasnot_count = int(match.group(1))
-                
-                # Parse AllPlan
-                try:
-                    allplan_count = int(float(allplan_val)) if pd.notna(allplan_val) else 0
-                except (ValueError, TypeError):
-                    allplan_count = 0
-                
-                records.append({
-                    'Teacher': current_teacher if current_teacher else '',
-                    'Group': group_val,
-                    'Subject': subject_val,
-                    'AllPlan': allplan_count,
-                    'WasNotTaken': wasnot_count,
-                    'WasNotTakenRaw': wasnot_val,
-                    'FromDate': from_date,
-                    'ToDate': to_date
-                })
-        
-        if records:
-            all_data.extend(records)
     
     if not all_data:
         return pd.DataFrame()
@@ -223,183 +219,168 @@ def read_cham_cong(files):
     all_data = []
     
     for file in files:
-        # Đọc sheet "Gio day cua thang"
         try:
-            df = pd.read_excel(file, sheet_name='Gio day cua thang', header=None)
-        except ValueError:
-            # Thử tìm sheet có tên tương tự
+            # Tìm sheet phù hợp
             xl = pd.ExcelFile(file)
-            sheet_name = None
+            target_sheet = None
+            
             for s in xl.sheet_names:
-                if 'gio day' in s.lower() or 'giờ dạy' in s.lower() or 'gio_day' in s.lower():
-                    sheet_name = s
+                s_lower = s.lower().replace(' ', '').replace('_', '')
+                if 'giodaycuathang' in s_lower or 'giờdạycủatháng' in s_lower:
+                    target_sheet = s
                     break
-            if sheet_name:
-                df = pd.read_excel(file, sheet_name=sheet_name, header=None)
-            else:
-                # Dùng sheet đầu tiên
-                df = pd.read_excel(file, header=None)
-        
-        # Parse thông tin tháng và khoảng ngày
-        thang = None
-        from_date = None
-        to_date = None
-        
-        for idx in range(min(10, len(df))):
-            row = df.iloc[idx]
-            for col_idx, val in enumerate(row.values):
-                if pd.notna(val):
-                    val_str = str(val).strip()
-                    # Tìm dòng NĂM: "01/2025 (Từ 16/12/2024 đến 11/01/2025)"
-                    if 'NĂM' in val_str.upper() or 'NAM' in val_str.upper():
-                        # Giá trị có thể ở cùng dòng cột tiếp theo
-                        for next_col in range(col_idx + 1, len(row.values)):
-                            next_val = row.values[next_col]
-                            if pd.notna(next_val):
-                                next_str = str(next_val).strip()
-                                # Parse: "01/2025 (Từ 16/12/2024 đến 11/01/2025)"
-                                thang_match = re.match(r'(\d{2}/\d{4})', next_str)
-                                if thang_match:
-                                    thang = thang_match.group(1)
-                                
-                                date_match = re.search(
-                                    r'[Tt]ừ\s+(\d{1,2}/\d{1,2}/\d{4})\s+đến\s+(\d{1,2}/\d{1,2}/\d{4})',
-                                    next_str
-                                )
-                                if date_match:
-                                    from_date = pd.to_datetime(date_match.group(1), dayfirst=True, errors='coerce')
-                                    to_date = pd.to_datetime(date_match.group(2), dayfirst=True, errors='coerce')
-                                break
-        
-        # Tìm header row (Stt, ID, HỌ TÊN, ĐƠN VỊ, Bộ môn, Đối tượng, Giờ dạy...)
-        header_row_idx = None
-        for idx in range(min(20, len(df))):
-            row = df.iloc[idx]
-            row_str = [str(v).strip().lower() for v in row.values if pd.notna(v)]
-            if any('stt' in v for v in row_str) or any('id' == v for v in row_str):
-                # Kiểm tra xem có phải header chính
-                if any('họ tên' in v or 'ho ten' in v or 'họ' in v for v in row_str):
-                    header_row_idx = idx
+                elif 'gioday' in s_lower or 'giờdạy' in s_lower:
+                    target_sheet = s
                     break
-                elif any('id' in v for v in row_str):
-                    header_row_idx = idx
-                    break
-        
-        if header_row_idx is None:
-            # Thử tìm dòng có "Stt"
+            
+            if target_sheet is None:
+                # Dùng sheet đầu tiên nếu không tìm thấy
+                target_sheet = xl.sheet_names[0]
+            
+            df = pd.read_excel(file, sheet_name=target_sheet, header=None)
+            
+            # Parse thông tin tháng và khoảng ngày
+            thang = None
+            from_date = None
+            to_date = None
+            
+            for idx in range(min(10, len(df))):
+                row = df.iloc[idx]
+                for col_idx, val in enumerate(row.values):
+                    if pd.notna(val):
+                        val_str = str(val).strip()
+                        # Tìm dòng NĂM hoặc dòng chứa thông tin "Từ ... đến ..."
+                        if 'NĂM' in val_str.upper() or 'NAM' in val_str.upper():
+                            # Giá trị có thể ở cùng dòng cột tiếp theo
+                            for next_col in range(col_idx + 1, len(row.values)):
+                                next_val = row.values[next_col]
+                                if pd.notna(next_val):
+                                    next_str = str(next_val).strip()
+                                    # Parse: "01/2025 (Từ 16/12/2024 đến 11/01/2025)"
+                                    thang_match = re.match(r'(\d{2}/\d{4})', next_str)
+                                    if thang_match:
+                                        thang = thang_match.group(1)
+                                    
+                                    date_match = re.search(
+                                        r'[Tt]ừ\s+(\d{1,2}/\d{1,2}/\d{4})\s+đến\s+(\d{1,2}/\d{1,2}/\d{4})',
+                                        next_str
+                                    )
+                                    if date_match:
+                                        from_date = pd.to_datetime(date_match.group(1), dayfirst=True, errors='coerce')
+                                        to_date = pd.to_datetime(date_match.group(2), dayfirst=True, errors='coerce')
+                                    break
+            
+            if thang is None:
+                # Thử parse từ tên file hoặc bỏ qua
+                continue
+            
+            # Tìm vị trí các cột quan trọng
+            # Duyệt qua nhiều dòng header để tìm cột
+            id_col = None
+            ho_ten_col = None
+            don_vi_col = None
+            bo_mon_col = None
+            doi_tuong_col = None
+            hs1_col = None
+            hs13_col = None
+            header_end_row = None
+            
             for idx in range(min(20, len(df))):
                 row = df.iloc[idx]
-                for val in row.values:
-                    if pd.notna(val) and str(val).strip().lower() == 'stt':
-                        header_row_idx = idx
-                        break
-                if header_row_idx is not None:
+                for col_idx, val in enumerate(row.values):
+                    if pd.notna(val):
+                        val_str = str(val).strip().lower()
+                        if val_str == 'stt':
+                            pass  # Bỏ qua cột STT
+                        elif val_str == 'id':
+                            id_col = col_idx
+                            header_end_row = idx
+                        elif 'họ tên' in val_str or 'ho ten' in val_str or val_str == 'họ tên':
+                            ho_ten_col = col_idx
+                        elif 'đơn vị' in val_str or 'don vi' in val_str:
+                            don_vi_col = col_idx
+                        elif 'bộ môn' in val_str or 'bo mon' in val_str:
+                            bo_mon_col = col_idx
+                        elif 'đối tượng' in val_str or 'doi tuong' in val_str:
+                            doi_tuong_col = col_idx
+                        elif 'hệ số 1.3' in val_str or 'he so 1.3' in val_str or val_str == 'hệ số 1.3':
+                            hs13_col = col_idx
+                        elif ('hệ số 1' in val_str or 'he so 1' in val_str or val_str == 'hệ số 1') and '1.3' not in val_str:
+                            hs1_col = col_idx
+            
+            if id_col is None or hs1_col is None:
+                continue
+            
+            # Tìm dòng bắt đầu dữ liệu (sau header, có ID là số)
+            data_start = (header_end_row + 1) if header_end_row else 0
+            for idx in range(data_start, min(data_start + 10, len(df))):
+                val = df.iloc[idx, id_col]
+                if pd.notna(val) and re.match(r'^\d+$', str(val).strip()):
+                    data_start = idx
                     break
-        
-        if header_row_idx is None:
-            continue
-        
-        # Tìm cột "Giờ dạy" - Hệ số 1 và Hệ số 1.3
-        # Header có thể nhiều dòng, cần tìm sub-header "Hệ số 1", "Hệ số 1.3"
-        # Tìm trong các dòng gần header
-        hs1_col = None
-        hs13_col = None
-        doi_tuong_col = None
-        id_col = None
-        ho_ten_col = None
-        don_vi_col = None
-        bo_mon_col = None
-        
-        # Duyệt qua vài dòng header để tìm cột
-        for search_row in range(max(0, header_row_idx - 2), min(header_row_idx + 3, len(df))):
-            row = df.iloc[search_row]
-            for col_idx, val in enumerate(row.values):
-                if pd.notna(val):
-                    val_str = str(val).strip().lower()
-                    if val_str == 'stt':
-                        pass  # bỏ qua
-                    elif val_str == 'id':
-                        id_col = col_idx
-                    elif 'họ tên' in val_str or 'ho ten' in val_str or 'họ' in val_str:
-                        ho_ten_col = col_idx
-                    elif 'đơn vị' in val_str or 'don vi' in val_str:
-                        don_vi_col = col_idx
-                    elif 'bộ môn' in val_str or 'bo mon' in val_str:
-                        bo_mon_col = col_idx
-                    elif 'đối tượng' in val_str or 'doi tuong' in val_str:
-                        doi_tuong_col = col_idx
-                    elif 'hệ số 1.3' in val_str or 'he so 1.3' in val_str:
-                        hs13_col = col_idx
-                    elif ('hệ số 1' in val_str or 'he so 1' in val_str) and '1.3' not in val_str:
-                        hs1_col = col_idx
-        
-        if hs1_col is None or id_col is None:
-            continue
-        
-        # Đọc dữ liệu từ dòng sau header
-        data_start = header_row_idx + 1
-        # Tìm dòng bắt đầu có dữ liệu (bỏ qua dòng filter dropdown)
-        for idx in range(data_start, min(data_start + 5, len(df))):
-            val = df.iloc[idx, id_col] if id_col is not None else None
-            if pd.notna(val) and str(val).strip():
-                data_start = idx
-                break
-        
-        # Đọc từng dòng dữ liệu
-        for idx in range(data_start, len(df)):
-            row = df.iloc[idx]
             
-            id_val = str(row.iloc[id_col]).strip() if pd.notna(row.iloc[id_col]) else ''
-            
-            # Bỏ qua dòng trống
-            if not id_val or id_val == 'nan':
-                continue
-            
-            # Bỏ qua nếu ID không phải số (có thể là dòng tổng hoặc ghi chú)
-            if not re.match(r'^\d+$', id_val):
-                continue
-            
-            ho_ten = str(row.iloc[ho_ten_col]).strip() if ho_ten_col is not None and pd.notna(row.iloc[ho_ten_col]) else ''
-            don_vi = str(row.iloc[don_vi_col]).strip() if don_vi_col is not None and pd.notna(row.iloc[don_vi_col]) else ''
-            bo_mon = str(row.iloc[bo_mon_col]).strip() if bo_mon_col is not None and pd.notna(row.iloc[bo_mon_col]) else ''
-            doi_tuong = str(row.iloc[doi_tuong_col]).strip() if doi_tuong_col is not None and pd.notna(row.iloc[doi_tuong_col]) else ''
-            
-            # Giờ dạy
-            hs1 = 0
-            hs13 = 0
-            try:
-                hs1 = float(row.iloc[hs1_col]) if pd.notna(row.iloc[hs1_col]) else 0
-            except (ValueError, TypeError):
+            # Đọc từng dòng dữ liệu
+            for idx in range(data_start, len(df)):
+                row = df.iloc[idx]
+                
+                id_val = str(row.iloc[id_col]).strip() if pd.notna(row.iloc[id_col]) else ''
+                
+                # Bỏ qua dòng trống hoặc không phải ID số
+                if not id_val or id_val == 'nan' or not re.match(r'^\d+$', id_val):
+                    continue
+                
+                ho_ten = str(row.iloc[ho_ten_col]).strip() if ho_ten_col is not None and pd.notna(row.iloc[ho_ten_col]) else ''
+                don_vi = str(row.iloc[don_vi_col]).strip() if don_vi_col is not None and pd.notna(row.iloc[don_vi_col]) else ''
+                bo_mon = str(row.iloc[bo_mon_col]).strip() if bo_mon_col is not None and pd.notna(row.iloc[bo_mon_col]) else ''
+                doi_tuong = str(row.iloc[doi_tuong_col]).strip() if doi_tuong_col is not None and pd.notna(row.iloc[doi_tuong_col]) else ''
+                
+                # Loại bỏ 'nan'
+                if ho_ten.lower() == 'nan':
+                    ho_ten = ''
+                if don_vi.lower() == 'nan':
+                    don_vi = ''
+                if bo_mon.lower() == 'nan':
+                    bo_mon = ''
+                if doi_tuong.lower() == 'nan':
+                    doi_tuong = ''
+                
+                # Giờ dạy
                 hs1 = 0
-            try:
-                if hs13_col is not None:
-                    hs13 = float(row.iloc[hs13_col]) if pd.notna(row.iloc[hs13_col]) else 0
-            except (ValueError, TypeError):
                 hs13 = 0
-            
-            gio_day_dt = hs1 + hs13
-            
-            all_data.append({
-                'Thang': thang,
-                'FromDate': from_date,
-                'ToDate': to_date,
-                'ID': id_val,
-                'HoTen': ho_ten,
-                'DonVi': don_vi,
-                'BoMon': bo_mon,
-                'DoiTuong': doi_tuong,
-                'HeSo1': hs1,
-                'HeSo13': hs13,
-                'GioDayDT': gio_day_dt
-            })
+                try:
+                    hs1 = float(row.iloc[hs1_col]) if pd.notna(row.iloc[hs1_col]) else 0
+                except (ValueError, TypeError):
+                    hs1 = 0
+                try:
+                    if hs13_col is not None:
+                        hs13 = float(row.iloc[hs13_col]) if pd.notna(row.iloc[hs13_col]) else 0
+                except (ValueError, TypeError):
+                    hs13 = 0
+                
+                gio_day_dt = hs1 + hs13
+                
+                all_data.append({
+                    'Thang': thang,
+                    'FromDate': from_date,
+                    'ToDate': to_date,
+                    'ID': id_val,
+                    'HoTen': ho_ten,
+                    'DonVi': don_vi,
+                    'BoMon': bo_mon,
+                    'DoiTuong': doi_tuong,
+                    'HeSo1': hs1,
+                    'HeSo13': hs13,
+                    'GioDayDT': gio_day_dt
+                })
+        
+        except Exception as e:
+            print(f"Lỗi đọc file chấm công: {e}")
+            continue
     
     if not all_data:
         return pd.DataFrame()
     
     result = pd.DataFrame(all_data)
-    # Fill forward cho merged cells (nếu HoTen trống thì lấy từ dòng trên)
-    # Thực tế merged cells khi đọc pandas sẽ thành NaN ở dòng dưới
-    # Nhưng vì ta đã filter theo ID có giá trị nên không cần fill forward
     return result
 
 
@@ -414,10 +395,10 @@ def read_danh_sach_gv(file):
     # Chuẩn hóa tên cột
     col_mapping = {}
     for col in df.columns:
-        col_lower = col.lower()
-        if 'id' == col_lower or col_lower == 'id':
+        col_lower = col.strip().lower()
+        if col_lower == 'id':
             col_mapping[col] = 'ID'
-        elif 'fullname' in col_lower or 'full name' in col_lower or 'họ tên' in col_lower:
+        elif 'fullname' in col_lower or 'full name' in col_lower or 'họ tên' in col_lower or 'teacher' in col_lower:
             col_mapping[col] = 'TeacherFullname'
         elif 'accountfe' in col_lower or 'account' in col_lower:
             col_mapping[col] = 'AccountFE'
@@ -445,8 +426,8 @@ def get_type_slot_mapping(df_lich_ky):
     """
     Tạo mapping SubjectCode → TypeSlot từ lịch kỳ.
     Mỗi SubjectCode chỉ có 1 TypeSlot duy nhất.
+    Bỏ qua SlotTypeCode = 'G' khi tạo mapping.
     """
-    # Lọc bỏ SlotTypeCode = 'G'
     df_filtered = df_lich_ky[df_lich_ky['SlotTypeCode'] != 'G'].copy()
     
     mapping = {}
@@ -463,15 +444,16 @@ def get_hours_per_slot(type_slot):
     Trả về số giờ cho mỗi buổi dựa vào TypeSlot.
     NEW SLOT = 2.25h, OLD SLOT = 1.5h
     """
-    if 'NEW' in type_slot.upper():
+    type_slot_upper = str(type_slot).upper()
+    if 'NEW' in type_slot_upper:
         return 2.25
-    elif 'OLD' in type_slot.upper():
+    elif 'OLD' in type_slot_upper:
         return 1.5
     else:
         return 2.25  # Default NEW SLOT
 
 
-def calculate_gio_lich_ky(df_lich_ky, from_date, to_date, df_gv_mapping):
+def calculate_gio_lich_ky(df_lich_ky, from_date, to_date):
     """
     Tính tổng giờ Lịch kỳ mỗi GV trong khoảng ngày.
     Lọc bỏ SlotTypeCode = 'G'.
@@ -483,6 +465,9 @@ def calculate_gio_lich_ky(df_lich_ky, from_date, to_date, df_gv_mapping):
     
     # Lọc bỏ SlotTypeCode = 'G'
     df_filtered = df_filtered[df_filtered['SlotTypeCode'] != 'G']
+    
+    if df_filtered.empty:
+        return pd.DataFrame(columns=['AccountFE', 'GioLichKy'])
     
     # Tính giờ cho mỗi buổi
     df_filtered['Hours'] = df_filtered['TypeSlot'].apply(get_hours_per_slot)
@@ -498,6 +483,7 @@ def calculate_gio_fap(df_teaching_summaries, df_lich_ky, from_date, to_date):
     """
     Tính tổng giờ FAP mỗi GV.
     Giờ FAP = Σ từng lớp: (AllPlan - WasNotTaken) × giờ/buổi (theo TypeSlot của SubjectCode)
+    Match TypeSlot qua SubjectCode từ lịch kỳ.
     """
     # Lọc Teaching Summaries theo khoảng ngày
     mask = (df_teaching_summaries['FromDate'] == from_date) & (df_teaching_summaries['ToDate'] == to_date)
@@ -519,6 +505,7 @@ def calculate_gio_fap(df_teaching_summaries, df_lich_ky, from_date, to_date):
         hours = actual_slots * get_hours_per_slot(type_slot)
         return hours
     
+    df_filtered = df_filtered.copy()
     df_filtered['Hours'] = df_filtered.apply(calc_hours, axis=1)
     
     # Tổng theo GV
@@ -565,7 +552,7 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
             continue
         
         # Tính giờ Lịch kỳ
-        gio_lich_ky = calculate_gio_lich_ky(df_lich_ky, from_date, to_date, df_gv_mapping)
+        gio_lich_ky = calculate_gio_lich_ky(df_lich_ky, from_date, to_date)
         
         # Tính giờ FAP
         gio_fap = calculate_gio_fap(df_teaching_summaries, df_lich_ky, from_date, to_date)
@@ -581,15 +568,14 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
                 how='left'
             )
         
-        # Merge tất cả dựa trên AccountFE
-        # Bắt đầu từ giờ ĐT (vì có đầy đủ thông tin GV)
         if 'AccountFE' not in gio_dt.columns:
             continue
         
+        # Merge tất cả dựa trên AccountFE
         merged = gio_dt.merge(gio_lich_ky, on='AccountFE', how='outer')
         merged = merged.merge(gio_fap, on='AccountFE', how='outer')
         
-        # Fill NaN = 0
+        # Fill NaN = 0 cho cột giờ
         merged['GioLichKy'] = merged['GioLichKy'].fillna(0)
         merged['GioFAP'] = merged['GioFAP'].fillna(0)
         merged['GioDayDT'] = merged['GioDayDT'].fillna(0)
@@ -599,7 +585,7 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
         
         # Kết quả TRUE/FALSE
         merged['KetQua'] = (
-            (merged['GioLichKy'] == merged['GioFAP']) & 
+            (merged['GioLichKy'] == merged['GioFAP']) &
             (merged['GioFAP'] == merged['GioDayDT'])
         )
         
@@ -624,6 +610,9 @@ def get_wasnot_taken_detail(df_teaching_summaries):
     """
     Trả về chi tiết các buổi WasNot Taken.
     """
+    if df_teaching_summaries.empty:
+        return pd.DataFrame()
+    
     df_filtered = df_teaching_summaries[df_teaching_summaries['WasNotTaken'] > 0].copy()
     
     if df_filtered.empty:
@@ -682,14 +671,20 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
             how='left'
         )
     
+    if 'AccountFE' not in doi_tuong_mapping.columns:
+        return pd.DataFrame(), 0, 0
+    
     # Merge giờ với đối tượng
-    result = gio_per_gv.merge(doi_tuong_mapping[['AccountFE', 'DoiTuong', 'DonVi', 'BoMon']], 
-                               on='AccountFE', how='left')
+    result = gio_per_gv.merge(
+        doi_tuong_mapping[['AccountFE', 'DoiTuong', 'DonVi', 'BoMon']],
+        on='AccountFE',
+        how='left'
+    )
     
     # Xác định cơ hữu
     result['LaCoHuu'] = result['DoiTuong'].apply(is_co_huu)
     
-    # Tính tỉ lệ theo đơn vị
+    # Tính tổng
     tong_gio_all = result['TongGio'].sum()
     tong_gio_co_huu = result[result['LaCoHuu'] == True]['TongGio'].sum()
     
@@ -708,11 +703,12 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None):
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # Sheet 1: Đối sánh chi tiết
-        if not df_doi_sanh.empty:
-            df_doi_sanh.to_excel(writer, sheet_name='Đối sánh giờ dạy', index=False)
+        if df_doi_sanh is not None and not df_doi_sanh.empty:
+            df_export = df_doi_sanh.copy()
+            df_export.to_excel(writer, sheet_name='Đối sánh giờ dạy', index=False)
         
         # Sheet 2: WasNot Taken
-        if not df_wasnot_taken.empty:
+        if df_wasnot_taken is not None and not df_wasnot_taken.empty:
             df_wasnot_taken.to_excel(writer, sheet_name='WasNot Taken', index=False)
         
         # Sheet 3: Giờ cơ hữu (nếu có)
