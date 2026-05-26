@@ -390,7 +390,34 @@ def run_check(files_lich_ky, files_teaching, files_cham_cong, file_gv, files_co_
             if df_cham_cong.empty:
                 st.error("❌ Không đọc được dữ liệu từ file Chấm công!")
                 return
-            
+                    # ===== DEBUG =====
+        st.subheader("🔍 DEBUG - Kiểm tra dữ liệu")
+        st.write(f"**Lịch kỳ:** {len(df_lich_ky)} dòng")
+        if not df_lich_ky.empty:
+            st.write(f"- Date dtype: {df_lich_ky['Date'].dtype}")
+            st.write(f"- Date mẫu: {df_lich_ky['Date'].head(3).tolist()}")
+            st.write(f"- Date min: {df_lich_ky['Date'].min()}, max: {df_lich_ky['Date'].max()}")
+            st.write(f"- Lecturer mẫu: {df_lich_ky['Lecturer'].head(3).tolist()}")
+        
+        st.write(f"**Chấm công:** {len(df_cham_cong)} dòng")
+        if not df_cham_cong.empty:
+            st.write(f"- Thang: {df_cham_cong['Thang'].unique().tolist()}")
+            st.write(f"- FromDate: {df_cham_cong['FromDate'].iloc[0]}")
+            st.write(f"- ToDate: {df_cham_cong['ToDate'].iloc[0]}")
+            st.write(f"- ID mẫu: {df_cham_cong['ID'].head(3).tolist()}")
+        
+        st.write(f"**Teaching Summaries:** {len(df_teaching)} dòng")
+        if not df_teaching.empty:
+            st.write(f"- Teacher mẫu: {df_teaching['Teacher'].head(3).tolist()}")
+        
+        st.write(f"**Danh sách GV:** {len(df_gv)} dòng")
+        if not df_gv.empty:
+            st.write(f"- ID mẫu: {df_gv['ID'].head(3).tolist()}")
+            st.write(f"- AccountFE mẫu: {df_gv['AccountFE'].head(3).tolist()}")
+        
+        st.stop()
+        # ===== END DEBUG =====
+
             # Đối sánh
             progress.progress(70, text="Đang đối sánh giờ dạy...")
             df_doi_sanh = doi_sanh_gio_day(df_lich_ky, df_teaching, df_cham_cong, df_gv)
