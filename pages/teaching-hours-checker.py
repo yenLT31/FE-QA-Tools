@@ -8,6 +8,7 @@ FPT Education QA Department
 import streamlit as st
 import sys
 import os
+import pandas as pd
 
 # Thêm path để import scripts
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -37,7 +38,6 @@ st.set_page_config(
 def load_css():
     st.markdown("""
     <style>
-        /* Header */
         .main-header {
             display: flex;
             align-items: center;
@@ -52,15 +52,6 @@ def load_css():
             color: #6b7280;
             font-size: 0.95rem;
             margin-bottom: 20px;
-        }
-        
-        /* Step sections */
-        .step-section {
-            background: var(--background-color, #f8fafc);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-            border: 1px solid var(--border-color, #e2e8f0);
         }
         .step-number {
             display: inline-flex;
@@ -86,8 +77,6 @@ def load_css():
             margin-top: 4px;
             margin-bottom: 16px;
         }
-        
-        /* Upload area */
         .upload-label {
             font-weight: 600;
             font-size: 0.85rem;
@@ -95,8 +84,6 @@ def load_css():
             letter-spacing: 0.5px;
             margin-bottom: 8px;
         }
-        
-        /* Button */
         .stButton > button {
             width: 100%;
             background: linear-gradient(135deg, #10b981, #059669);
@@ -114,8 +101,6 @@ def load_css():
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
         }
-        
-        /* Warning */
         .warning-box {
             background: #fef3c7;
             border: 1px solid #f59e0b;
@@ -125,8 +110,6 @@ def load_css():
             font-size: 0.9rem;
             margin-bottom: 12px;
         }
-        
-        /* Success */
         .success-box {
             background: #d1fae5;
             border: 1px solid #10b981;
@@ -136,8 +119,6 @@ def load_css():
             font-size: 0.9rem;
             margin-bottom: 12px;
         }
-        
-        /* Sidebar */
         [data-testid="stSidebar"] {
             padding-top: 1rem;
         }
@@ -174,8 +155,6 @@ def load_css():
             font-size: 0.82rem;
             margin: 2px 0;
         }
-        
-        /* Tabs */
         .stTabs [data-baseweb="tab-list"] {
             gap: 8px;
         }
@@ -202,7 +181,6 @@ def render_sidebar():
         
         st.markdown("---")
         
-        # Toggle sáng/tối
         st.markdown("**GIAO DIỆN**")
         theme = st.radio(
             "Chọn giao diện",
@@ -213,7 +191,6 @@ def render_sidebar():
         
         st.markdown("---")
         
-        # Hướng dẫn nhanh
         st.markdown("""
         <div class="guide-box">
             <p><strong>HƯỚNG DẪN NHANH</strong></p>
@@ -226,7 +203,6 @@ def render_sidebar():
         </div>
         """, unsafe_allow_html=True)
         
-        # Bảo mật
         st.markdown("""
         <div class="security-box">
             <p>🔒 <strong>Bảo mật dữ liệu</strong></p>
@@ -245,7 +221,6 @@ def render_sidebar():
 # MAIN CONTENT
 # ============================================================
 def render_main():
-    # Header
     st.markdown("""
     <div class="main-header">
         <h1>⏱️ Teaching Hours Checker</h1>
@@ -253,7 +228,6 @@ def render_main():
     <p class="main-description">Kiểm soát giờ dạy GV — Đối chiếu Lịch kỳ, FAP Teaching Summaries & Phiếu chấm công ĐT</p>
     """, unsafe_allow_html=True)
     
-    # Tabs
     tab_config, tab_result = st.tabs(["⚙️ Cấu hình", "📊 Kết quả"])
     
     with tab_config:
@@ -264,7 +238,7 @@ def render_main():
 
 
 def render_config_tab():
-    # ============ STEP 01: Upload files kiểm soát giờ dạy ============
+    # STEP 01
     st.markdown("""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px; margin-top:10px;">
         <span class="step-number">01</span>
@@ -319,7 +293,7 @@ def render_config_tab():
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # ============ STEP 02: Upload file tính giờ cơ hữu ============
+    # STEP 02
     st.markdown("""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
         <span class="step-number">02</span>
@@ -339,7 +313,7 @@ def render_config_tab():
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # ============ STEP 03: Bắt đầu kiểm tra ============
+    # STEP 03
     st.markdown("""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
         <span class="step-number">03</span>
@@ -347,7 +321,6 @@ def render_config_tab():
     </div>
     """, unsafe_allow_html=True)
     
-    # Kiểm tra điều kiện
     can_run = files_lich_ky and files_teaching and files_cham_cong and file_gv
     
     if not can_run:
@@ -390,23 +363,49 @@ def run_check(files_lich_ky, files_teaching, files_cham_cong, file_gv, files_co_
             if df_cham_cong.empty:
                 st.error("❌ Không đọc được dữ liệu từ file Chấm công!")
                 return
-       # Đối sánh
-        progress.progress(70, text="Đang đối sánh giờ dạy...")
-        st.write("DEBUG LK:", len(df_lich_ky), "rows")
-        st.write("DEBUG CC:", len(df_cham_cong), "rows")
-        st.write("DEBUG TS:", len(df_teaching), "rows")
-        st.write("DEBUG GV:", len(df_gv), "rows")
-        if not df_lich_ky.empty:
-            st.write("Date dtype:", df_lich_ky['Date'].dtype)
-            st.write("Date head:", df_lich_ky['Date'].head(3).tolist())
-            st.write("Lecturer head:", df_lich_ky['Lecturer'].head(3).tolist())
-        if not df_cham_cong.empty:
-            st.write("CC Thang:", df_cham_cong['Thang'].unique().tolist())
-            st.write("CC FromDate:", df_cham_cong['FromDate'].iloc[0])
-            st.write("CC ToDate:", df_cham_cong['ToDate'].iloc[0])
-        st.stop()
-        df_doi_sanh = doi_sanh_gio_day(df_lich_ky, df_teaching, df_cham_cong, df_gv)
             
+            # ===== DEBUG - Xóa sau khi test xong =====
+            st.subheader("DEBUG - Kiểm tra dữ liệu đọc được")
+            st.write(f"Lịch kỳ: {len(df_lich_ky)} dòng")
+            if not df_lich_ky.empty:
+                st.write(f"- Date dtype: {df_lich_ky['Date'].dtype}")
+                st.write(f"- Date mẫu: {df_lich_ky['Date'].head(3).tolist()}")
+                st.write(f"- Date min: {df_lich_ky['Date'].min()}")
+                st.write(f"- Date max: {df_lich_ky['Date'].max()}")
+                st.write(f"- Lecturer mẫu: {df_lich_ky['Lecturer'].head(3).tolist()}")
+            st.write(f"Chấm công: {len(df_cham_cong)} dòng")
+            if not df_cham_cong.empty:
+                st.write(f"- Thang: {df_cham_cong['Thang'].unique().tolist()}")
+                st.write(f"- FromDate: {df_cham_cong['FromDate'].iloc[0]}")
+                st.write(f"- ToDate: {df_cham_cong['ToDate'].iloc[0]}")
+                st.write(f"- ID mẫu: {df_cham_cong['ID'].head(3).tolist()}")
+            st.write(f"Teaching Summaries: {len(df_teaching)} dòng")
+            if not df_teaching.empty:
+                st.write(f"- Teacher mẫu: {df_teaching['Teacher'].head(3).tolist()}")
+            st.write(f"Danh sách GV: {len(df_gv)} dòng")
+            if not df_gv.empty:
+                st.write(f"- ID mẫu: {df_gv['ID'].head(3).tolist()}")
+                st.write(f"- AccountFE mẫu: {df_gv['AccountFE'].head(3).tolist()}")
+            st.stop()
+            # ===== END DEBUG =====
+            
+            # Đối sánh
+            progress.progress(75, text="Đang đối sánh giờ dạy...")
+            df_doi_sanh = doi_sanh_gio_day(df_lich_ky, df_teaching, df_cham_cong, df_gv)
+            
+            # WasNot Taken
+            progress.progress(85, text="Xử lý WasNot Taken...")
+            df_wasnot = get_wasnot_taken_detail(df_teaching)
+            
+            # Giờ cơ hữu
+            df_co_huu = None
+            if files_co_huu:
+                progress.progress(90, text="Tính giờ cơ hữu...")
+                df_lich_ky_full = read_lich_ky(files_co_huu)
+                if not df_lich_ky_full.empty:
+                    df_co_huu, tong_co_huu, tong_all = calculate_gio_co_huu(
+                        df_lich_ky_full, df_cham_cong, df_gv
+                    )
             
             progress.progress(100, text="Hoàn tất!")
             
@@ -440,7 +439,7 @@ def render_result_tab():
     df_wasnot = st.session_state.get('wasnot_taken', None)
     df_co_huu = st.session_state.get('co_huu', None)
     
-    # ===== Thống kê tổng quan =====
+    # Thống kê tổng quan
     if df_doi_sanh is not None and not df_doi_sanh.empty:
         total_gv = len(df_doi_sanh)
         total_true = len(df_doi_sanh[df_doi_sanh['KetQua'] == True])
@@ -448,15 +447,14 @@ def render_result_tab():
         
         col1, col2, col3 = st.columns(3)
         col1.metric("Tổng GV kiểm tra", total_gv)
-        col2.metric("Khớp (TRUE)", total_true, delta=None)
-        col3.metric("Lệch (FALSE)", total_false, delta=None, delta_color="inverse")
+        col2.metric("Khớp (TRUE)", total_true)
+        col3.metric("Lệch (FALSE)", total_false)
         
         st.markdown("---")
     
-    # ===== Sheet 1: Đối sánh =====
+    # Sheet 1: Đối sánh
     st.markdown("### 📊 Đối sánh giờ dạy")
     if df_doi_sanh is not None and not df_doi_sanh.empty:
-        # Highlight FALSE
         def highlight_false(row):
             if row.get('KetQua') == False:
                 return ['background-color: #fee2e2'] * len(row)
@@ -472,7 +470,7 @@ def render_result_tab():
     
     st.markdown("---")
     
-    # ===== Sheet 2: WasNot Taken =====
+    # Sheet 2: WasNot Taken
     st.markdown("### 📋 Chi tiết WasNot Taken")
     if df_wasnot is not None and not df_wasnot.empty:
         st.dataframe(df_wasnot, use_container_width=True, height=300)
@@ -481,7 +479,7 @@ def render_result_tab():
     
     st.markdown("---")
     
-    # ===== Sheet 3: Giờ cơ hữu =====
+    # Sheet 3: Giờ cơ hữu
     if df_co_huu is not None and not df_co_huu.empty:
         st.markdown("### 🏫 Giờ dạy cơ hữu HK")
         
@@ -497,7 +495,7 @@ def render_result_tab():
         st.dataframe(df_co_huu, use_container_width=True, height=300)
         st.markdown("---")
     
-    # ===== Xuất Excel =====
+    # Xuất Excel
     st.markdown("### 💾 Tải báo cáo")
     excel_file = export_to_excel(
         df_doi_sanh if df_doi_sanh is not None else pd.DataFrame(),
