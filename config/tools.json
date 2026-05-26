@@ -30,6 +30,14 @@
         "icon": "🎯",
         "status": "live",
         "uses": 60
+    },
+    {
+    "id": "teaching-hours-checker",
+    "name": "Teaching Hours Checker",
+    "desc": "Kiểm soát giờ dạy GV — Đối chiếu Lịch kỳ, FAP & Chấm công ĐT",
+    "icon": "⏱️",
+    "status": "live",
+    "uses": 0
     }
 ]
 
