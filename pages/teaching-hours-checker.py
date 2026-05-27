@@ -330,7 +330,7 @@ def render_sidebar():
             """,
             unsafe_allow_html=True,
         )
-         st.page_link("app.py", label="Trang chủ", icon="🏠")
+        st.page_link("app.py", label="Trang chủ", icon="🏠")
         st.divider()
 
         st.markdown("**Bảo mật dữ liệu**")
