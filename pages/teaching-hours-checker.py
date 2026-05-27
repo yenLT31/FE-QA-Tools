@@ -75,6 +75,17 @@ def load_css():
             [data-testid="stSidebar"] {
                 border-right: 1px solid var(--qa-line);
             }
+            [data-testid="stSidebar"] {
+             border-right: 1px solid var(--qa-line);
+            }
+
+            [data-testid="stSidebarNav"] {
+             display: none;
+            }
+
+            [data-testid="stSidebarNavSeparator"] {
+                display: none;
+            }
 
             [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
                 margin-bottom: 0.35rem;
