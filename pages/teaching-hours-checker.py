@@ -13,7 +13,7 @@ import streamlit as st
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 try:
-    from Script.scriptsteaching_hours_checker import (
+   from scripts.teaching_hours_checker import (
         build_lich_ky_kiem_tra,
         calculate_gio_co_huu,
         doi_sanh_gio_day,
