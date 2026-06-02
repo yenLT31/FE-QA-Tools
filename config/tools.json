@@ -41,7 +41,7 @@
     },
     {
     "id": "grade_lookup",
-    "name": "grade_lookup",
+    "name": "Grade_lookup",
     "desc": "Kiểm tra điểm SV",
     "icon": "🏆",
     "status": "live",
