@@ -6,16 +6,16 @@ import io
 
 # ============================================================
 #  LOAD LOGIC
-#  ⚠️ Nếu file script của bạn tên khác 'decision_lookup.py',
+#  ⚠️ Nếu file script của bạn tên khác 'decision-lookup.py',
 #     đổi tên file ở dòng dưới cho khớp.
 # ============================================================
 SCRIPT_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'decision_lookup.py')
+    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'decision-lookup.py')
 )
 _load_error = None
 logic = None
 try:
-    spec = importlib.util.spec_from_file_location("decision_lookup", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location("decision-lookup", SCRIPT_PATH)
     logic = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(logic)
 except Exception as e:
