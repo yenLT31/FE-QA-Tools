@@ -6,7 +6,7 @@ import io
 
 # ============================================================
 #  LOAD LOGIC
-#  ⚠️ Nếu file script của bạn tên khác 'decision-lookup.py',
+#  ⚠️ Nếu file script của bạn tên khác 'decision_lookup.py',
 #     đổi tên file ở dòng dưới cho khớp.
 # ============================================================
 SCRIPT_PATH = os.path.abspath(
@@ -165,6 +165,29 @@ def divider():
                 unsafe_allow_html=True)
 
 
+def extract_mssv_from_file(f):
+    """Trích danh sách MSSV từ file .txt / .csv / .xlsx (loại trùng, giữ thứ tự)."""
+    name = f.name.lower()
+    if name.endswith(".txt"):
+        text = f.getvalue().decode("utf-8", errors="ignore")
+        tokens = text.replace(",", "\n").replace(";", "\n").split()
+        return [t for t in dict.fromkeys(tokens) if t]
+    try:
+        if name.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(f.getvalue()), dtype=str)
+        else:
+            df = pd.read_excel(io.BytesIO(f.getvalue()), dtype=str)
+    except Exception:
+        return []
+    if df.empty:
+        return []
+    # Dùng detect_mssv_col của script để tìm đúng cột MSSV; không thấy thì lấy cột đầu
+    col_idx = logic.detect_mssv_col(list(df.columns))
+    series = df.iloc[:, col_idx] if col_idx >= 0 else df.iloc[:, 0]
+    vals = [str(v).strip() for v in series.dropna().tolist()]
+    return [v for v in dict.fromkeys(vals) if v and v.lower() != "nan"]
+
+
 # ============================================================
 #  SIDEBAR
 # ============================================================
@@ -275,15 +298,43 @@ with tabs[0]:
     )
 
     divider()
-    step_badge(2, "Nhập MSSV", "Mỗi MSSV một dòng, hoặc cách nhau bằng dấu phẩy / khoảng trắng")
-    mssv_raw = st.text_area(
-        "MSSV", key="dl_mssv_input", height=120, label_visibility="collapsed",
-        placeholder="VD:\nHE160001\nSE150234, DE170045",
+    step_badge(2, "Nhập MSSV", "Nhập tay, hoặc tải file (.txt / .csv / .xlsx) chứa MSSV")
+
+    input_mode = st.radio(
+        "Cách nhập MSSV", ["✍️ Nhập tay", "📂 Tải file"],
+        horizontal=True, key="dl_input_mode", label_visibility="collapsed",
     )
-    # tách MSSV theo xuống dòng / phẩy / chấm phẩy / khoảng trắng, loại trùng & rỗng
-    mssv_list = [m for m in dict.fromkeys(
-        mssv_raw.replace(",", "\n").replace(";", "\n").split()
-    ) if m]
+
+    mssv_list = []
+    if input_mode == "✍️ Nhập tay":
+        mssv_raw = st.text_area(
+            "MSSV", key="dl_mssv_input", height=120, label_visibility="collapsed",
+            placeholder="VD:\nHE160001\nSE150234, DE170045",
+        )
+        # tách theo xuống dòng / phẩy / chấm phẩy / khoảng trắng, loại trùng & rỗng
+        mssv_list = [m for m in dict.fromkeys(
+            mssv_raw.replace(",", "\n").replace(";", "\n").split()
+        ) if m]
+    else:
+        mssv_file = st.file_uploader(
+            "File MSSV", type=["txt", "csv", "xlsx", "xls"],
+            key="dl_mssv_file", label_visibility="collapsed",
+        )
+        if mssv_file is not None:
+            mssv_list = extract_mssv_from_file(mssv_file)
+            if mssv_list:
+                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+                    border-radius:10px;padding:10px 14px;margin-top:8px">
+                    <span style="font-size:12.5px;color:{T['gtxt']};font-weight:600">
+                        ✅ Đã đọc {len(mssv_list)} MSSV từ file</span></div>""",
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(f"""<div style="background:{T['ybg']};border:1px solid {T['yellow']}33;
+                    border-radius:10px;padding:10px 14px;margin-top:8px">
+                    <span style="font-size:12.5px;color:{T['ytxt']}">
+                        ⚠️ Chưa đọc được MSSV nào. File .csv/.xlsx nên có cột tiêu đề "MSSV"
+                        (hoặc tương tự), hoặc dùng .txt mỗi dòng 1 MSSV.</span></div>""",
+                    unsafe_allow_html=True)
 
     if pdf_files or mssv_list:
         divider()
