@@ -38,6 +38,14 @@
     "icon": "⏱️",
     "status": "live",
     "uses": 0
+    },
+    {
+    "id": "grade_lookup",
+    "name": "grade_lookup",
+    "desc": "Kiểm tra điểm SV",
+    "icon": "🏆",
+    "status": "live",
+    "uses": 0
     }
 ]
 
