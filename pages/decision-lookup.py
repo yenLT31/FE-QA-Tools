@@ -6,20 +6,27 @@ import io
 
 # ============================================================
 #  LOAD LOGIC
+#  ⚠️ Nếu file script của bạn tên khác 'decision_lookup.py',
+#     đổi tên file ở dòng dưới cho khớp.
 # ============================================================
 SCRIPT_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'gpa_schedule_checker.py')
+    os.path.join(os.path.dirname(__file__), '..', 'scripts', 'decision_lookup.py')
 )
-spec = importlib.util.spec_from_file_location("gpa_schedule_checker", SCRIPT_PATH)
-logic = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(logic)
+_load_error = None
+logic = None
+try:
+    spec = importlib.util.spec_from_file_location("decision_lookup", SCRIPT_PATH)
+    logic = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(logic)
+except Exception as e:
+    _load_error = e
 
 # ============================================================
 #  PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="GPA Schedule Checker | FE QA Tools",
-    page_icon="QA",
+    page_title="Decision Lookup | FE QA Tools",
+    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -54,8 +61,8 @@ T = DARK if st.session_state.theme == "dark" else LIGHT
 #  SESSION STATE
 # ============================================================
 defaults = {
-    "gpa_report1": None, "gpa_report2": None, "gpa_report3": None,
-    "gpa_lecturer_pct": None, "gpa_done": False, "gpa_stats": {},
+    "dl_summary": None, "dl_detail": None, "dl_errors": [],
+    "dl_done": False, "dl_stats": {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -100,6 +107,14 @@ st.markdown(f"""<style>
     background: {T['card2']} !important; padding: 20px !important;
 }}
 [data-testid="stFileUploader"] section:hover {{ border-color: {T['accent']} !important; }}
+.stTextInput input, .stTextArea textarea {{
+    background: {T['card2']} !important; color: {T['text']} !important;
+    border: 1px solid {T['border']} !important; border-radius: 10px !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+}}
+.stTextInput input:focus, .stTextArea textarea:focus {{
+    border-color: {T['accent']} !important; box-shadow: none !important;
+}}
 .stButton > button {{
     background: {T['accent']} !important; color: #080D18 !important;
     font-family: 'Plus Jakarta Sans', sans-serif !important;
@@ -121,7 +136,7 @@ st.markdown(f"""<style>
 
 
 # ============================================================
-#  HELPERS
+#  UI HELPERS
 # ============================================================
 def step_badge(num, title, desc=""):
     st.markdown(f"""
@@ -159,11 +174,11 @@ with st.sidebar:
         <div style="display:flex;align-items:center;gap:10px">
             <div style="width:36px;height:36px;border-radius:10px;
                         background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
-                        display:flex;align-items:center;justify-content:center;font-size:18px">📋</div>
+                        display:flex;align-items:center;justify-content:center;font-size:18px">🔍</div>
             <div>
-                <div style="font-size:14px;font-weight:800;color:{T['accent']}">GPA Schedule Checker</div>
+                <div style="font-size:14px;font-weight:800;color:{T['accent']}">Decision Lookup</div>
                 <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.8px;
-                            text-transform:uppercase">Đối sánh GPA & Lịch kỳ</div>
+                            text-transform:uppercase">Tra cứu MSSV trong Quyết định</div>
             </div>
         </div>
     </div>""", unsafe_allow_html=True)
@@ -185,9 +200,9 @@ with st.sidebar:
     <p style="font-size:10px;color:{T['muted']};font-weight:700;letter-spacing:.9px;
               text-transform:uppercase;margin-bottom:10px">Hướng dẫn nhanh</p>
     <div style="font-size:12px;color:{T['muted']};line-height:2.1">
-        <div>① Upload file(s) Lịch kỳ</div>
-        <div>② Upload file(s) GPA Feedback</div>
-        <div>③ Bấm "Bắt đầu đối sánh"</div>
+        <div>① Upload file Quyết định (PDF)</div>
+        <div>② Nhập (các) MSSV cần tra cứu</div>
+        <div>③ Bấm "Tra cứu"</div>
         <div>④ Xem kết quả & tải báo cáo</div>
     </div>""", unsafe_allow_html=True)
 
@@ -223,228 +238,179 @@ st.markdown(f"""
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
         <div style="width:44px;height:44px;border-radius:14px;
                     background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
-                    display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
+                    display:flex;align-items:center;justify-content:center;font-size:22px">🔍</div>
         <div>
             <h1 style="font-size:26px;font-weight:800;color:{T['text']};margin:0;line-height:1.2">
-                GPA Schedule Checker</h1>
+                Decision Lookup</h1>
             <p style="font-size:13px;color:{T['muted']};margin:0">
-                Đối sánh lịch kỳ và GPA – kiểm tra GV đủ 30%, phát hiện lớp GPA dưới 3.4</p>
+                Tra cứu MSSV trong các file Quyết định PDF — tìm nhanh sinh viên thuộc Quyết định nào</p>
         </div>
     </div>
 </div>""", unsafe_allow_html=True)
 
 
 # ============================================================
+#  KIỂM TRA NẠP SCRIPT
+# ============================================================
+if _load_error is not None:
+    st.markdown(f"""<div style="background:{T['rbg']};border:1px solid {T['red']}33;
+        border-radius:10px;padding:14px 18px">
+        <span style="font-size:13px;color:{T['rtxt']}">
+            ❌ Không nạp được <code>scripts/decision_lookup.py</code>: {_load_error}</span>
+    </div>""", unsafe_allow_html=True)
+    st.stop()
+
+
+# ============================================================
 #  TABS
 # ============================================================
-tabs = st.tabs(["⚙️  Cấu hình", "📊  Kết quả"])
+tabs = st.tabs(["🔍  Tra cứu", "📊  Kết quả"])
 
-# ── TAB 1: CẤU HÌNH ──────────────────────────────────────────
+# ── TAB 1: TRA CỨU ───────────────────────────────────────────
 with tabs[0]:
-    step_badge(1, "Tải lên file", "Upload file Lịch kỳ và các file GPA Feedback")
-
-    col_schedule, col_gpa = st.columns(2)
-    with col_schedule:
-        st.markdown(f"<p style='font-size:11px;color:{T['muted']};font-weight:700;"
-                    f"text-transform:uppercase;margin-bottom:8px'>📅 File Lịch kỳ</p>",
-                    unsafe_allow_html=True)
-        schedule_files = st.file_uploader(
-            "Upload Lịch kỳ", type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="schedule_upload", label_visibility="collapsed"
-        )
-    with col_gpa:
-        st.markdown(f"<p style='font-size:11px;color:{T['muted']};font-weight:700;"
-                    f"text-transform:uppercase;margin-bottom:8px'>📊 File GPA Feedback</p>",
-                    unsafe_allow_html=True)
-        gpa_files = st.file_uploader(
-            "Upload GPA", type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="gpa_upload", label_visibility="collapsed"
-        )
-
-    if schedule_files or gpa_files:
-        divider()
-        step_badge(2, "Xác nhận dữ liệu")
-        mc1, mc2, mc3 = st.columns(3)
-
-        with mc1:
-            sch_count = len(schedule_files) if schedule_files else 0
-            if sch_count > 0:
-                st.markdown(f"""<div style="background:{T['card']};border:1px solid {T['border']};
-                    border-radius:12px;padding:18px">
-                    <div style="font-size:10px;color:{T['muted']};font-weight:700;
-                        text-transform:uppercase;margin-bottom:6px">File Lịch kỳ</div>
-                    <div style="font-size:30px;font-weight:800;color:{T['accent']}">{sch_count}</div>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.markdown(f"""<div style="background:{T['card']};border:2px dashed {T['border']};
-                    border-radius:12px;padding:18px;text-align:center">
-                    <div style="font-size:20px;margin-bottom:4px">📅</div>
-                    <div style="font-size:12px;color:{T['muted']}">Chưa upload file Lịch kỳ</div>
-                </div>""", unsafe_allow_html=True)
-
-        with mc2:
-            gpa_count = len(gpa_files) if gpa_files else 0
-            if gpa_count > 0:
-                st.markdown(f"""<div style="background:{T['card']};border:1px solid {T['border']};
-                    border-radius:12px;padding:18px">
-                    <div style="font-size:10px;color:{T['muted']};font-weight:700;
-                        text-transform:uppercase;margin-bottom:6px">File GPA</div>
-                    <div style="font-size:30px;font-weight:800;color:{T['blue']}">{gpa_count}</div>
-                </div>""", unsafe_allow_html=True)
-            else:
-                st.markdown(f"""<div style="background:{T['card']};border:2px dashed {T['border']};
-                    border-radius:12px;padding:18px;text-align:center">
-                    <div style="font-size:20px;margin-bottom:4px">📊</div>
-                    <div style="font-size:12px;color:{T['muted']}">Chưa upload file GPA</div>
-                </div>""", unsafe_allow_html=True)
-
-        with mc3:
-            ready = bool(schedule_files and gpa_files)
-            st.markdown(f"""<div style="background:{T['card']};border:1px solid {T['border']};
-                border-radius:12px;padding:18px">
-                <div style="font-size:10px;color:{T['muted']};font-weight:700;
-                    text-transform:uppercase;margin-bottom:6px">Trạng thái</div>
-                <div style="font-size:30px;margin-bottom:2px">{"✅" if ready else "⏳"}</div>
-                <div style="font-size:11px;color:{T['green'] if ready else T['yellow']};font-weight:600">
-                    {"Sẵn sàng đối sánh" if ready else "Đang chờ dữ liệu"}</div>
-            </div>""", unsafe_allow_html=True)
+    step_badge(1, "Tải lên Quyết định", "Upload một hoặc nhiều file Quyết định (.pdf)")
+    pdf_files = st.file_uploader(
+        "Upload Quyết định", type=["pdf"], accept_multiple_files=True,
+        key="dl_pdf_upload", label_visibility="collapsed",
+    )
 
     divider()
-    step_badge(3, "Bắt đầu đối sánh")
+    step_badge(2, "Nhập MSSV", "Mỗi MSSV một dòng, hoặc cách nhau bằng dấu phẩy / khoảng trắng")
+    mssv_raw = st.text_area(
+        "MSSV", key="dl_mssv_input", height=120, label_visibility="collapsed",
+        placeholder="VD:\nHE160001\nSE150234, DE170045",
+    )
+    # tách MSSV theo xuống dòng / phẩy / chấm phẩy / khoảng trắng, loại trùng & rỗng
+    mssv_list = [m for m in dict.fromkeys(
+        mssv_raw.replace(",", "\n").replace(";", "\n").split()
+    ) if m]
 
-    can_run = bool(schedule_files and gpa_files)
+    if pdf_files or mssv_list:
+        divider()
+        step_badge(3, "Xác nhận dữ liệu")
+        mc1, mc2 = st.columns(2)
+        with mc1:
+            st.markdown(card_metric("File Quyết định", len(pdf_files) if pdf_files else 0,
+                                    T['accent'], T['card']), unsafe_allow_html=True)
+        with mc2:
+            st.markdown(card_metric("MSSV cần tra cứu", len(mssv_list),
+                                    T['blue'], T['bbg']), unsafe_allow_html=True)
+
+    divider()
+    step_badge(4, "Bắt đầu tra cứu")
+
+    can_run = bool(pdf_files and mssv_list)
     if not can_run:
         st.markdown(f"""<div style="background:{T['ybg']};border:1px solid {T['yellow']}33;
             border-radius:10px;padding:12px 16px">
             <span style="font-size:13px;color:{T['ytxt']}">
-                ⚠️ Cần upload: file Lịch kỳ và file(s) GPA Feedback</span>
+                ⚠️ Cần upload ít nhất 1 file Quyết định và nhập ít nhất 1 MSSV</span>
         </div>""", unsafe_allow_html=True)
 
-    if st.button("📋  Bắt đầu đối sánh", use_container_width=True,
-                 disabled=not can_run, key="btn_run"):
+    if st.button("🔍  Tra cứu", use_container_width=True, disabled=not can_run, key="btn_run"):
         progress = st.progress(0, text="Đang chuẩn bị...")
 
-        progress.progress(0.1, text="Đang gộp file lịch kỳ...")
-        schedule_df = logic.merge_schedule_files(schedule_files)
+        progress.progress(0.2, text="Đang đọc file PDF...")
+        pdf_data_list = [{"name": f.name, "bytes": f.getvalue()} for f in pdf_files]
 
-        progress.progress(0.3, text="Đang gộp file GPA...")
-        gpa_df = logic.merge_gpa_files(gpa_files)
-
-        if schedule_df.empty:
-            st.error("❌ File lịch kỳ không có dữ liệu.")
-            st.stop()
-        if gpa_df.empty:
-            st.error("❌ File GPA không có dữ liệu.")
+        progress.progress(0.4, text="Đang quét các Quyết định...")
+        try:
+            results = logic.search_mssv_in_pdfs(mssv_list, pdf_data_list)
+        except Exception as e:
+            st.error(f"❌ Lỗi khi tra cứu: {e}")
             st.stop()
 
-        progress.progress(0.5, text="Đang tính tỷ lệ GV...")
-        lecturer_pct = logic.calculate_lecturer_percentage(schedule_df)
+        errors = results.get("_errors", [])
 
-        progress.progress(0.7, text="Đang tạo báo cáo...")
-        report1, report2, report3, error = logic.generate_reports(schedule_df, gpa_df)
+        progress.progress(0.8, text="Đang tổng hợp kết quả...")
+        df_summary, df_detail = logic.build_export_data(mssv_list, results)
 
-        if error:
-            st.error(f"❌ {error}")
-            st.stop()
+        # Đếm số QĐ (file) thực sự có hit
+        hit_files = set()
+        for mssv in mssv_list:
+            info = results.get(mssv.strip(), {})
+            for h in info.get("hits", []):
+                hit_files.add(h["file"])
 
-        # Lưu kết quả
-        st.session_state.gpa_report1 = report1
-        st.session_state.gpa_report2 = report2
-        st.session_state.gpa_report3 = report3
-        st.session_state.gpa_lecturer_pct = lecturer_pct
-        st.session_state.gpa_done = True
-        st.session_state.gpa_stats = {
-            "gpa_low": len(report1) if report1 is not None and not report1.empty else 0,
-            "eligible_no_gpa": len(report2) if report2 is not None and not report2.empty else 0,
-            "not_eligible_has_gpa": len(report3) if report3 is not None and not report3.empty else 0,
-            "total_gv": len(lecturer_pct),
+        found = int((df_summary["Tìm thấy"] == "Có").sum()) if not df_summary.empty else 0
+        not_found = int((df_summary["Tìm thấy"] == "Không").sum()) if not df_summary.empty else 0
+
+        st.session_state.dl_summary = df_summary
+        st.session_state.dl_detail = df_detail
+        st.session_state.dl_errors = errors
+        st.session_state.dl_done = True
+        st.session_state.dl_stats = {
+            "found": found,
+            "not_found": not_found,
+            "decisions": len(hit_files),
+            "files": len(pdf_files),
         }
-
         progress.progress(1.0, text="✅ Hoàn tất!")
         st.rerun()
 
 # ── TAB 2: KẾT QUẢ ───────────────────────────────────────────
 with tabs[1]:
-    if not st.session_state.gpa_done:
+    if not st.session_state.dl_done:
         st.markdown(f"""<div style="text-align:center;padding:80px 20px">
             <div style="font-size:52px;margin-bottom:16px">📭</div>
             <h3 style="font-size:18px;font-weight:700;color:{T['text']};margin-bottom:8px">
                 Chưa có kết quả</h3>
             <p style="font-size:13px;color:{T['muted']}">
-                Quay lại tab Cấu hình để upload file và bắt đầu đối sánh</p>
+                Quay lại tab Tra cứu để upload Quyết định và nhập MSSV</p>
         </div>""", unsafe_allow_html=True)
     else:
-        stats = st.session_state.gpa_stats
-        report1 = st.session_state.gpa_report1
-        report2 = st.session_state.gpa_report2
-        report3 = st.session_state.gpa_report3
-        lecturer_pct = st.session_state.gpa_lecturer_pct
+        stats = st.session_state.dl_stats
+        df_summary = st.session_state.dl_summary
+        df_detail = st.session_state.dl_detail
+        errors = st.session_state.dl_errors
 
         # Metric cards
         st.markdown(f"""
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
-            {card_metric("GPA dưới 3.4", stats['gpa_low'], T['red'], T['rbg'])}
-            {card_metric("Đủ 30% chưa lấy GPA", stats['eligible_no_gpa'], T['yellow'], T['ybg'])}
-            {card_metric("Dưới 30% bị lấy GPA", stats['not_eligible_has_gpa'], T['orange'], T['obg'])}
-            {card_metric("Tổng GV/Lớp", stats['total_gv'], T['blue'], T['bbg'])}
+            {card_metric("MSSV tìm thấy", stats['found'], T['green'], T['gbg'])}
+            {card_metric("MSSV không thấy", stats['not_found'], T['orange'], T['obg'])}
+            {card_metric("Số QĐ liên quan", stats['decisions'], T['blue'], T['bbg'])}
+            {card_metric("File đã quét", stats['files'], T['accent'], T['card'])}
         </div>""", unsafe_allow_html=True)
 
-        # Detail tabs
-        detail_tabs = st.tabs([
-            f"🔴 GPA dưới 3.4 ({stats['gpa_low']})",
-            f"🟡 Đủ 30% chưa lấy GPA ({stats['eligible_no_gpa']})",
-            f"🟠 Dưới 30% bị lấy GPA ({stats['not_eligible_has_gpa']})",
-            "📊 Tỷ lệ % GV theo lớp"
-        ])
+        # Cảnh báo file đọc lỗi
+        if errors:
+            err_lines = "<br>".join(f"• {e['file']}: {e['error']}" for e in errors)
+            st.markdown(f"""<div style="background:{T['rbg']};border:1px solid {T['red']}33;
+                border-radius:10px;padding:14px 18px;margin-bottom:18px">
+                <div style="font-size:12px;font-weight:700;color:{T['rtxt']};margin-bottom:6px">
+                    ⚠️ {len(errors)} file không đọc được:</div>
+                <div style="font-size:12px;color:{T['muted']};line-height:1.7">{err_lines}</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Tabs chi tiết
+        detail_tabs = st.tabs(["📋 Tổng hợp", "🔎 Chi tiết theo dòng"])
 
         with detail_tabs[0]:
-            if report1 is not None and not report1.empty:
-                st.dataframe(report1, use_container_width=True, height=500, hide_index=True)
+            if df_summary is not None and not df_summary.empty:
+                st.dataframe(df_summary, use_container_width=True, height=460, hide_index=True)
             else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào GPA dưới 3.4</span>
-                </div>""", unsafe_allow_html=True)
+                st.info("Không có dữ liệu tổng hợp.")
 
         with detail_tabs[1]:
-            if report2 is not None and not report2.empty:
-                st.dataframe(report2, use_container_width=True, height=500, hide_index=True)
+            if df_detail is not None and not df_detail.empty:
+                st.dataframe(df_detail, use_container_width=True, height=460, hide_index=True)
             else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Tất cả GV đủ ĐK đã được lấy GPA</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[2]:
-            if report3 is not None and not report3.empty:
-                st.dataframe(report3, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào vi phạm</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[3]:
-            st.dataframe(lecturer_pct, use_container_width=True, height=500, hide_index=True)
+                st.info("Không có dữ liệu chi tiết.")
 
         # Download
         divider()
-        excel_report = logic.export_reports_to_excel(report1, report2, report3)
+        excel_bytes = logic.to_excel_bytes(df_summary, df_detail)
         st.download_button(
-            label="📥  Tải báo cáo đối sánh (.xlsx)",
-            data=excel_report,
-            file_name="BaoCao_DoiSanh_GPA.xlsx",
+            label="📥  Tải kết quả tra cứu (.xlsx)",
+            data=excel_bytes,
+            file_name="KetQua_TraCuu_QuyetDinh.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-        if st.button("🔄  Làm lại đối sánh mới", key="btn_reset"):
+        if st.button("🔄  Tra cứu mới", key="btn_reset"):
             for k in defaults:
                 st.session_state[k] = defaults[k]
             st.rerun()
