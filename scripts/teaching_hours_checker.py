@@ -1228,7 +1228,7 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
                         pass
                 elif isinstance(val, (int, float)) or (col_name and ('Gio' in col_name or 'HeSo' in col_name or 'ChenhLech' in col_name)):
                     cell.alignment = align_right
-                    cell.number_format = '#,##0.0'
+                    cell.number_format = '#,##0.00'
                     try:
                         if val is not None:
                             cell.value = float(val)
