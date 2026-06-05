@@ -35,6 +35,24 @@ def clean_text(val):
     return val_str
 
 
+def clean_code(val):
+    """
+    Chuẩn hóa mã môn học / tên lớp / mã nhóm (SubjectCode, GroupName, v.v.):
+    - Chuẩn hóa Unicode (NFC)
+    - Loại bỏ ký tự ẩn (zero-width spaces)
+    - Collapse spaces, strip
+    - Chuyển thành UPPERCASE → không phân biệt hoa/thường khi liên kết
+    """
+    if pd.isna(val):
+        return ""
+    val_str = str(val)
+    val_str = unicodedata.normalize('NFC', val_str)
+    val_str = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', val_str)
+    val_str = re.sub(r'\s+', ' ', val_str).strip()
+    val_str = val_str.upper()
+    return val_str
+
+
 def clean_account(val):
     """
     Chuẩn hóa AccountFE / Lecturer code viết tắt:
@@ -85,7 +103,6 @@ def parse_date_robust(val):
     if re.match(r'^\d+(\.0+)?$', val_str):
         try:
             serial_date = int(float(val_str))
-            # Excel epoch bắt đầu từ 1899-12-30 do lỗi năm nhuận 1900
             return pd.to_datetime(serial_date, unit='D', origin='1899-12-30').normalize()
         except Exception:
             pass
@@ -192,7 +209,6 @@ def read_lich_ky(files):
     for file in files:
         try:
             df = pd.read_excel(file, dtype=str)
-            # Chuẩn hóa tên cột (strip whitespace)
             df.columns = df.columns.str.strip()
             all_data.append(df)
         except Exception as e:
@@ -210,11 +226,11 @@ def read_lich_ky(files):
     # Chuẩn hóa cột Lecturer: lowercase, strip, remove spaces
     df['Lecturer'] = df['Lecturer'].apply(clean_account)
     
-    # Chuẩn hóa SubjectCode: strip, normalize
-    df['SubjectCode'] = df['SubjectCode'].apply(clean_text)
+    # Chuẩn hóa SubjectCode: UPPERCASE để không phân biệt hoa/thường
+    df['SubjectCode'] = df['SubjectCode'].apply(clean_code)
     
-    # Chuẩn hóa GroupName: strip, normalize
-    df['GroupName'] = df['GroupName'].apply(clean_text)
+    # Chuẩn hóa GroupName: UPPERCASE để không phân biệt hoa/thường
+    df['GroupName'] = df['GroupName'].apply(clean_code)
     
     # Chuẩn hóa TypeSlot: strip, uppercase, normalize
     df['TypeSlot'] = df['TypeSlot'].apply(clean_text).str.upper()
@@ -239,14 +255,12 @@ def read_teaching_summaries(files):
         source_name = getattr(file, 'name', str(file))
         source_month_from_file = infer_month_from_text(source_name)
         try:
-            # Đọc tất cả sheets trong file
             xl = pd.ExcelFile(file)
             
             for sheet_name in xl.sheet_names:
                 source_month = source_month_from_file or infer_month_from_text(sheet_name)
                 df = pd.read_excel(file, sheet_name=sheet_name, header=None)
                 
-                # Bỏ qua sheet trống
                 if df.empty or len(df) < 5:
                     continue
                 
@@ -259,7 +273,6 @@ def read_teaching_summaries(files):
                     row_str = [str(v).strip() for v in row.values if pd.notna(v)]
                     row_str_lower = [s.lower() for s in row_str]
                     if 'from date' in row_str_lower:
-                        # Dòng tiếp theo là giá trị
                         if idx + 1 < len(df):
                             next_row = df.iloc[idx + 1]
                             from_date = parse_date_robust(next_row.iloc[0])
@@ -271,7 +284,6 @@ def read_teaching_summaries(files):
                 for idx in range(min(30, len(df))):
                     row = df.iloc[idx]
                     row_str = [str(v).strip().lower() for v in row.values if pd.notna(v)]
-                    # Phải chứa đồng thời ít nhất 3 từ khóa cốt lõi để tránh nhận nhầm ô dữ liệu thông thường
                     has_teacher = any('teacher' in s for s in row_str)
                     has_group = any('group' in s or 'class' in s for s in row_str)
                     has_subject = any('subject' in s for s in row_str)
@@ -290,7 +302,6 @@ def read_teaching_summaries(files):
                 df_data = df.iloc[header_row_idx + 1:].copy()
                 headers = df.iloc[header_row_idx].values
                 
-                # Xử lý duplicate column names
                 seen = {}
                 clean_headers = []
                 for h in headers:
@@ -304,7 +315,7 @@ def read_teaching_summaries(files):
                 
                 df_data.columns = clean_headers
                 
-                # Tìm cột tương ứng (lấy cột đầu tiên match)
+                # Tìm cột tương ứng
                 teacher_col = None
                 group_col = None
                 subject_col = None
@@ -335,7 +346,6 @@ def read_teaching_summaries(files):
                     allplan_val = row[allplan_col] if allplan_col else None
                     wasnot_val = str(row[wasnot_col]).strip() if wasnot_col and pd.notna(row[wasnot_col]) else ''
                     
-                    # Loại bỏ giá trị 'nan'
                     if teacher_val.lower() == 'nan':
                         teacher_val = ''
                     if group_val.lower() == 'nan':
@@ -350,8 +360,8 @@ def read_teaching_summaries(files):
                         current_teacher = clean_account(teacher_val)
                     # Nếu có Group và Subject → đây là dòng dữ liệu
                     elif group_val and subject_val:
-                        clean_grp = clean_text(group_val)
-                        clean_sub = clean_text(subject_val)
+                        clean_grp = clean_code(group_val)      # ← ĐÃ SỬA: dùng clean_code
+                        clean_sub = clean_code(subject_val)     # ← ĐÃ SỬA: dùng clean_code
                         # Parse số WasNotTaken từ text
                         wasnot_count = 0
                         if wasnot_val:
@@ -406,7 +416,6 @@ def read_cham_cong(files):
     
     for file in files:
         try:
-            # Tìm sheet phù hợp
             xl = pd.ExcelFile(file)
             target_sheet = None
             
@@ -461,7 +470,6 @@ def read_cham_cong(files):
                 )
                 continue
             
-            # Tìm vị trí các cột quan trọng
             if from_date is not None and to_date is not None and pd.notna(from_date) and pd.notna(to_date):
                 thang_month, thang_year = [int(part) for part in thang.split('/')]
                 is_valid_cross_year_january = (
@@ -515,7 +523,6 @@ def read_cham_cong(files):
                     doi_tuong_col = bo_mon_col + 1
                 break
 
-            # Cac cot gio day co the nam o header nhieu tang, khong cung dong voi ID/Ho ten.
             for idx in range(min(30, len(df))):
                 row = df.iloc[idx]
                 for col_idx, val in enumerate(row.values):
@@ -531,7 +538,6 @@ def read_cham_cong(files):
                 )
                 continue
             
-            # Tìm dòng bắt đầu dữ liệu (sau header, có ID là số)
             data_start = (header_end_row + 1) if header_end_row else 0
             for idx in range(data_start, min(data_start + 10, len(df))):
                 val = df.iloc[idx, id_col]
@@ -541,15 +547,12 @@ def read_cham_cong(files):
                         data_start = idx
                         break
 
-            # Đọc từng dòng dữ liệu
             for idx in range(data_start, len(df)):
                 row = df.iloc[idx]
                 
                 id_val = str(row.iloc[id_col]).strip() if pd.notna(row.iloc[id_col]) else ''
-                # Loại bỏ .0 nếu pandas đọc số thành float
                 id_val = re.sub(r'\.0$', '', id_val)
                 
-                # Bỏ qua dòng trống hoặc không phải ID số
                 if not id_val or id_val == 'nan' or not re.match(r'^\d+$', id_val):
                     continue
                 
@@ -558,7 +561,6 @@ def read_cham_cong(files):
                 bo_mon = clean_text(row.iloc[bo_mon_col]) if bo_mon_col is not None and pd.notna(row.iloc[bo_mon_col]) else ''
                 doi_tuong = clean_text(row.iloc[doi_tuong_col]) if doi_tuong_col is not None and pd.notna(row.iloc[doi_tuong_col]) else ''
                 
-                # Loại bỏ 'nan'
                 if ho_ten.lower() == 'nan':
                     ho_ten = ''
                 if don_vi.lower() == 'nan':
@@ -568,7 +570,6 @@ def read_cham_cong(files):
                 if doi_tuong.lower() == 'nan':
                     doi_tuong = ''
                 
-                # Giờ dạy
                 hs1 = 0
                 hs13 = 0
                 try:
@@ -618,7 +619,6 @@ def read_danh_sach_gv(file):
     df = pd.read_excel(file, dtype=str)
     df.columns = df.columns.str.strip()
     
-    # Chuẩn hóa tên cột
     col_mapping = {}
     drop_cols = []
     for col in df.columns:
@@ -636,23 +636,18 @@ def read_danh_sach_gv(file):
         elif 'note' in col_lower:
             col_mapping[col] = 'Note'
     
-    # Xóa cột STT
     if drop_cols:
         df = df.drop(columns=drop_cols)
     
     df = df.rename(columns=col_mapping)
     
-    # Chuẩn hóa
     if 'ID' in df.columns:
         df['ID'] = df['ID'].astype(str).str.strip()
-        # Loại bỏ .0 nếu pandas đọc thành float
         df['ID'] = df['ID'].str.replace(r'\.0$', '', regex=True)
-        # Loại bỏ dòng ID trống hoặc nan
         df = df[df['ID'].notna() & (df['ID'] != '') & (df['ID'] != 'nan')]
     
     if 'AccountFE' in df.columns:
         df['AccountFE'] = df['AccountFE'].apply(clean_account)
-        # Loại bỏ dòng AccountFE trống
         df = df[df['AccountFE'].notna() & (df['AccountFE'] != '') & (df['AccountFE'] != 'nan')]
     
     return df
@@ -672,7 +667,7 @@ def get_type_slot_mapping(df_lich_ky):
     
     mapping = {}
     for _, row in df_filtered.drop_duplicates(subset=['SubjectCode']).iterrows():
-        subject = str(row['SubjectCode']).strip()
+        subject = str(row['SubjectCode']).strip().upper()  # ← ĐÃ SỬA: thêm .upper()
         type_slot = str(row['TypeSlot']).strip().upper()
         mapping[subject] = type_slot
     
@@ -699,20 +694,16 @@ def calculate_gio_lich_ky(df_lich_ky, from_date, to_date):
     Lọc bỏ SlotTypeCode = 'G'.
     Chưa trừ WasNot Taken.
     """
-    # Lọc theo khoảng ngày
     mask = (df_lich_ky['Date'] >= from_date) & (df_lich_ky['Date'] <= to_date)
     df_filtered = df_lich_ky[mask].copy()
     
-    # Lọc bỏ SlotTypeCode = 'G'
     df_filtered = df_filtered[df_filtered['SlotTypeCode'] != 'G']
     
     if df_filtered.empty:
         return pd.DataFrame(columns=['AccountFE', 'GioLichKy'])
     
-    # Tính giờ cho mỗi buổi
     df_filtered['Hours'] = df_filtered['TypeSlot'].apply(get_hours_per_slot)
     
-    # Tổng giờ theo GV (Lecturer = AccountFE lowercase)
     result = df_filtered.groupby('Lecturer')['Hours'].sum().reset_index()
     result.columns = ['AccountFE', 'GioLichKy']
     
@@ -765,9 +756,6 @@ def calculate_slots_fap(df_teaching_summaries, from_date, to_date):
         )
         df_filtered = df_teaching_summaries[overlap_mask].copy()
 
-    # Some FAP exports contain the From Date / To Date labels but no actual
-    # date values. In that case, match monthly files by SourceMonth inferred
-    # from file/sheet names, for example fap1.xlsx -> month 1.
     if df_filtered.empty and 'SourceMonth' in df_teaching_summaries.columns:
         target_month = None
         if pd.notna(to_date):
@@ -782,9 +770,6 @@ def calculate_slots_fap(df_teaching_summaries, from_date, to_date):
     if df_filtered.empty:
         return pd.DataFrame(columns=['AccountFE', 'SlotsFAP'])
     
-    # Lấy mapping SubjectCode → TypeSlot từ lịch kỳ (bỏ qua G)
-    
-    # Tính giờ từng dòng
     def calc_slots(row):
         actual_slots = row['AllPlan'] - row['WasNotTaken']
         if actual_slots < 0:
@@ -794,7 +779,6 @@ def calculate_slots_fap(df_teaching_summaries, from_date, to_date):
     df_filtered = df_filtered.copy()
     df_filtered['Slots'] = df_filtered.apply(calc_slots, axis=1)
     
-    # Tổng theo GV
     result = df_filtered.groupby('Teacher')['Slots'].sum().reset_index()
     result.columns = ['AccountFE', 'SlotsFAP']
     
@@ -826,7 +810,6 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
     """
     results = []
     
-    # Chuẩn hóa ID (loại bỏ .0, strip)
     df_gv_mapping = df_gv_mapping.copy()
     if 'ID' in df_gv_mapping.columns:
         df_gv_mapping['ID'] = df_gv_mapping['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
@@ -834,7 +817,6 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
     df_cham_cong = df_cham_cong.copy()
     df_cham_cong['ID'] = df_cham_cong['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
     
-    # Lấy danh sách tháng từ chấm công
     months = df_cham_cong[['Thang', 'FromDate', 'ToDate']].drop_duplicates()
     
     for _, month_row in months.iterrows():
@@ -845,51 +827,37 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
         if pd.isna(from_date) or pd.isna(to_date):
             continue
         
-        # Tính giờ Lịch kỳ
         gio_lich_ky = calculate_gio_lich_ky(df_lich_ky, from_date, to_date)
         slots_lich_ky = calculate_slots_lich_ky(df_lich_ky, from_date, to_date)
-        
-        # Tính giờ FAP
         slots_fap = calculate_slots_fap(df_teaching_summaries, from_date, to_date)
-        
-        # Lấy giờ ĐT
         gio_dt = calculate_gio_dt(df_cham_cong, thang)
         
-        # === Tạo bảng master từ Danh sách GV ===
         if 'ID' in df_gv_mapping.columns and 'AccountFE' in df_gv_mapping.columns:
             master = df_gv_mapping[['ID', 'AccountFE']].copy()
             master = master.dropna(subset=['AccountFE'])
             master['AccountFE'] = master['AccountFE'].apply(clean_account)
-            # Loại bỏ AccountFE = 'nan'
             master = master[master['AccountFE'] != 'nan']
         else:
             continue
         
-        # Merge giờ ĐT vào master qua ID (chỉ lấy GV có trong chấm công)
         master = master.merge(
             gio_dt[['ID', 'HoTen', 'DonVi', 'BoMon', 'DoiTuong', 'GioDayDT']],
             on='ID',
             how='inner'
         )
         
-        # Merge giờ Lịch kỳ vào master qua AccountFE
         master = master.merge(gio_lich_ky, on='AccountFE', how='left')
-        
-        # Merge giờ FAP vào master qua AccountFE
         master = master.merge(slots_lich_ky, on='AccountFE', how='left')
         master = master.merge(slots_fap, on='AccountFE', how='left')
         
-        # Fill NaN = 0 cho cột giờ
         master['GioLichKy'] = master['GioLichKy'].fillna(0)
         master['SlotsLichKy'] = master['SlotsLichKy'].fillna(0)
         master['SlotsFAP'] = master['SlotsFAP'].fillna(0)
         master['GioDayDT'] = master['GioDayDT'].fillna(0)
         
-        # Tính chênh lệch
         master['ChenhLech_LichKy_DT'] = master['GioLichKy'] - master['GioDayDT']
         master['CheckSlots_LichKy_FAP'] = master['SlotsLichKy'] == master['SlotsFAP']
         
-        # Kết quả TRUE/FALSE
         master['KetQua'] = (
             (master['ChenhLech_LichKy_DT'] == 0) &
             (master['CheckSlots_LichKy_FAP'])
@@ -903,14 +871,12 @@ def doi_sanh_gio_day(df_lich_ky, df_teaching_summaries, df_cham_cong, df_gv_mapp
     
     final = pd.concat(results, ignore_index=True)
     
-    # Sắp xếp cột
     cols_order = ['Thang', 'ID', 'HoTen', 'AccountFE', 'DonVi', 'BoMon', 'DoiTuong',
                   'GioLichKy', 'GioDayDT', 'ChenhLech_LichKy_DT',
                   'SlotsLichKy', 'SlotsFAP', 'CheckSlots_LichKy_FAP', 'KetQua']
     existing_cols = [c for c in cols_order if c in final.columns]
     final = final[existing_cols]
     
-    # Sắp xếp theo Tháng, HoTen
     final = final.sort_values(['Thang', 'HoTen']).reset_index(drop=True)
     
     return final
@@ -971,7 +937,6 @@ def get_wasnot_taken_detail(df_teaching_summaries):
 def is_co_huu(doi_tuong):
     """
     Kiểm tra đối tượng có phải cơ hữu không.
-    Cơ hữu: CBNV, CBQL, CH, CHdn, CHNN1, GVNCV, GVQL hoặc bắt đầu bằng 'CH'
     """
     if not doi_tuong or str(doi_tuong).strip() == '' or str(doi_tuong).strip().lower() == 'nan':
         return False
@@ -990,17 +955,13 @@ def is_co_huu(doi_tuong):
 def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     """
     Tính giờ dạy cơ hữu HK.
-    Nguồn giờ: Lịch kỳ FAP toàn kỳ (KHÔNG bỏ SlotTypeCode = 'G')
-    Đối tượng: Từ chấm công ĐT
     """
-    # Tính giờ mỗi GV từ lịch kỳ (KHÔNG lọc SlotTypeCode G)
     df_calc = df_lich_ky_full.copy()
     df_calc['Hours'] = df_calc['TypeSlot'].apply(get_hours_per_slot)
     
     gio_per_gv = df_calc.groupby('Lecturer')['Hours'].sum().reset_index()
     gio_per_gv.columns = ['AccountFE', 'TongGio']
     
-    # Chuẩn hóa ID
     df_gv_mapping = df_gv_mapping.copy()
     if 'ID' in df_gv_mapping.columns:
         df_gv_mapping['ID'] = df_gv_mapping['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
@@ -1008,10 +969,8 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     df_cham_cong = df_cham_cong.copy()
     df_cham_cong['ID'] = df_cham_cong['ID'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
     
-    # Lấy đối tượng từ chấm công (lấy unique theo ID)
     doi_tuong_mapping = df_cham_cong[['ID', 'HoTen', 'DoiTuong', 'BoMon', 'DonVi']].drop_duplicates(subset=['ID'])
     
-    # Merge với danh sách GV để có AccountFE
     if 'ID' in df_gv_mapping.columns and 'AccountFE' in df_gv_mapping.columns:
         doi_tuong_mapping = doi_tuong_mapping.merge(
             df_gv_mapping[['ID', 'AccountFE']],
@@ -1022,7 +981,6 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     if 'AccountFE' not in doi_tuong_mapping.columns:
         return pd.DataFrame(), 0, 0
     
-    # Chuẩn hóa AccountFE
     doi_tuong_mapping['AccountFE'] = doi_tuong_mapping['AccountFE'].apply(clean_account)
     doi_tuong_mapping = doi_tuong_mapping[
         doi_tuong_mapping['AccountFE'].notna() &
@@ -1030,7 +988,6 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
         (doi_tuong_mapping['AccountFE'] != 'nan')
     ]
     
-    # Merge giờ với đối tượng
     result = doi_tuong_mapping.merge(
         gio_per_gv,
         on='AccountFE',
@@ -1038,9 +995,6 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     )
     result['TongGio'] = result['TongGio'].fillna(0)
     
-    # Xác định cơ hữu
-    
-    # Tính tổng
     tong_gio_all = result['TongGio'].sum()
     tong_gio_co_huu = result[result['DoiTuong'].apply(is_co_huu) == True]['TongGio'].sum()
     
@@ -1052,8 +1006,7 @@ def calculate_gio_co_huu(df_lich_ky_full, df_cham_cong, df_gv_mapping):
 
 def build_lich_ky_kiem_tra(df_lich_ky_full, df_cham_cong, df_gv_mapping):
     """
-    Tao sheet lich ky kiem tra: them Thang theo khoang cham cong va
-    thong tin GV link qua ID -> AccountFE.
+    Tao sheet lich ky kiem tra.
     """
     if df_lich_ky_full.empty:
         return pd.DataFrame()
@@ -1125,32 +1078,27 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
     output = BytesIO()
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Sheet 1: Đối sánh chi tiết
         if df_doi_sanh is not None and not df_doi_sanh.empty:
             df_export = df_doi_sanh.copy()
             df_export.to_excel(writer, sheet_name='Đối sánh giờ dạy', index=False)
         
-        # Sheet 2: WasNot Taken
         if df_wasnot_taken is not None and not df_wasnot_taken.empty:
             df_wasnot_taken.to_excel(writer, sheet_name='WasNot Taken', index=False)
         
-        # Sheet 3: Giờ cơ hữu (nếu có)
         if df_co_huu is not None and not df_co_huu.empty:
             df_co_huu.to_excel(writer, sheet_name='Giờ dạy cơ hữu', index=False)
 
         if df_lich_ky_kiem_tra is not None and not df_lich_ky_kiem_tra.empty:
             df_lich_ky_kiem_tra.to_excel(writer, sheet_name='Lịch kỳ kiểm tra', index=False)
             
-    # Đọc lại bằng openpyxl để apply styles chuyên nghiệp
     output.seek(0)
     from openpyxl import load_workbook
     wb = load_workbook(output)
     
-    # Định nghĩa styles
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid") # Navy Blue
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     
-    mismatch_fill = PatternFill(start_color="FADBD8", end_color="FADBD8", fill_type="solid") # Đỏ nhạt
+    mismatch_fill = PatternFill(start_color="FADBD8", end_color="FADBD8", fill_type="solid")
     
     thin_border_side = Side(border_style="thin", color="D3D3D3")
     cell_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
@@ -1162,14 +1110,11 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         
-        # Kích hoạt gridlines
         ws.views.sheetView[0].showGridLines = True
         
-        # Lấy số dòng và cột
         max_row = ws.max_row
         max_col = ws.max_column
         
-        # 1. Định dạng Header (Dòng 1)
         for col in range(1, max_col + 1):
             cell = ws.cell(row=1, column=col)
             cell.fill = header_fill
@@ -1177,12 +1122,9 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
             cell.alignment = align_center
             cell.border = cell_border
         
-        # 2. Định dạng nội dung
         for row in range(2, max_row + 1):
-            # Check xem dòng này có bị lệch kết quả đối sánh không (đối với sheet 'Đối sánh giờ dạy')
             is_mismatch = False
             if sheet_name == 'Đối sánh giờ dạy':
-                # Tìm cột có tiêu đề 'KetQua'
                 ket_qua_col_idx = None
                 for col in range(1, max_col + 1):
                     if ws.cell(row=1, column=col).value == 'KetQua':
@@ -1190,7 +1132,6 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
                         break
                 if ket_qua_col_idx:
                     val = ws.cell(row=row, column=ket_qua_col_idx).value
-                    # Nếu KetQua là False hoặc chuỗi 'False'
                     if val is False or str(val).strip().upper() == 'FALSE':
                         is_mismatch = True
             
@@ -1198,15 +1139,12 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
                 cell = ws.cell(row=row, column=col)
                 cell.border = cell_border
                 
-                # Highlight nếu bị lệch
                 if is_mismatch:
                     cell.fill = mismatch_fill
                 
-                # Căn lề theo kiểu dữ liệu
                 val = cell.value
                 col_name = ws.cell(row=1, column=col).value
                 
-                # Các cột dạng mã/ID/ngày/boolean/Tháng -> Căn giữa
                 if col_name in ['Thang', 'ID', 'AccountFE', 'KetQua', 'CheckSlots_LichKy_FAP', 'FromDate', 'ToDate', 'Group', 'Subject', 'LaCoHuu', 'SoBuoiNghi']:
                     cell.alignment = align_center
                 elif col_name and 'Slots' in col_name:
@@ -1217,7 +1155,6 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
                             cell.value = int(float(val))
                     except ValueError:
                         pass
-                # Các cột dạng số/giờ -> Căn phải và format số
                 elif col_name in ['Hours', 'TongGio']:
                     cell.alignment = align_right
                     cell.number_format = '#,##0.00'
@@ -1237,20 +1174,17 @@ def export_to_excel(df_doi_sanh, df_wasnot_taken, df_co_huu=None, df_lich_ky_kie
                 else:
                     cell.alignment = align_left
         
-        # 3. Tự động co giãn cột (Auto-fit Columns)
         for col in ws.columns:
             max_len = 0
             col_letter = get_column_letter(col[0].column)
             for cell in col:
                 val_str = str(cell.value or '')
-                # Nếu là tiêu đề thì cộng thêm một khoảng đệm lớn hơn
                 if cell.row == 1:
                     max_len = max(max_len, len(val_str) + 4)
                 else:
                     max_len = max(max_len, len(val_str))
             ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
             
-    # Lưu lại
     output_styled = BytesIO()
     wb.save(output_styled)
     output_styled.seek(0)
