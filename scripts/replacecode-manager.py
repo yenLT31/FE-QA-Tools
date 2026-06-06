@@ -19,13 +19,38 @@ def is_valid_subject_code(s):
 
 def _normalize(s):
     """
-    Chuan hoa chuoi: lower + strip + thay newline bang space.
-    De so sanh noi dung cell bat ke PDF co xuong dong hay khong.
-    VD: "Thay\\nthe" -> "thay the" -> match duoc "thay the"
+    Chuan hoa chuoi: lower + thay MOI loai khoang trang (xuong dong, tab,
+    nhieu space) bang DUNG MOT space, roi strip.
+    Dam bao "Tương \\nđương", "Tương  đương", "Tương\\nđương" deu thanh
+    "tương đương" -> phep kiem 'tương đương' in ... khong bi truot.
     """
     if s is None:
         return ""
-    return str(s).lower().strip().replace('\n', ' ')
+    return re.sub(r'\s+', ' ', str(s).lower()).strip()
+
+
+def _extract_effective_date(pdf):
+    """
+    Lay NGAY SOAN THAO VAN BAN (= ngay hieu luc) tu noi dung PDF.
+
+    Trong van ban QD cua DHFPT, ngay nay nam o header trang dau,
+    mau: "Ha Noi, ngay 16 thang 12 nam 2025"
+    (va lap lai o header moi phu luc).
+
+    Tra ve chuoi "DD/MM/YYYY", vd "16/12/2025". Neu khong tim thay -> "".
+    Chi quet vai trang dau cho nhanh, lay lan khop dau tien.
+    """
+    pat = re.compile(
+        r'ng[aà]y\s+(\d{1,2})\s+th[aá]ng\s+(\d{1,2})\s+n[aă]m\s+(\d{4})',
+        re.IGNORECASE
+    )
+    for page in pdf.pages[:3]:
+        txt = page.extract_text() or ""
+        m = pat.search(txt)
+        if m:
+            d, mth, y = m.groups()
+            return f"{int(d):02d}/{int(mth):02d}/{y}"
+    return ""
 
 
 def _merge_continuation_rows(table):
@@ -86,6 +111,41 @@ def _find_hinh_thuc_idx(row):
 
 # ── Ham chinh ─────────────────────────────────────────────────────────────────
 
+def _clean_code_cell(v):
+    """
+    Lam sach o chua MA mon (SubjectCode / Replacecode).
+
+    PDF cot hep ngat dong giua chuoi -> pdfplumber chen '\\n'. Co 2 kieu:
+      (a) Ngat GIUA mot token  : 'C\\nSI102'->'CSI102', 'ITA203\\nc'->'ITA203c'
+      (b) Liet ke NHIEU ma     : 'SAL301/\\nIBC201/\\nIBI101', 'A\\nhoặc\\nB'
+
+    Xu ly:
+      - "hoặc"/"và" -> '/' (thanh dau tach de tach thanh nhieu ma o buoc sau).
+      - Voi moi '\\n': NOI LIEN neu mot ben la manh vo (token khong phai ma hop le)
+        -> han gan token bi cat; nguoc lai (hai ben deu la ma hop le) -> dung '/'.
+    """
+    if v is None:
+        return ""
+    s = str(v)
+    # "hoặc"/"và" (kem khoang trang/xuong dong xung quanh) -> '/'
+    s = re.sub(r'[\s\n]*\b(hoặc|và)\b[\s\n]*', '/', s, flags=re.IGNORECASE)
+
+    frags = [f.strip() for f in s.split('\n') if f.strip()]
+    if not frags:
+        return ""
+
+    result = frags[0]
+    for f in frags[1:]:
+        prev_tail = re.split(r'[,/ ]', result)[-1]   # token cuoi cua phan da gop
+        cur_head  = re.split(r'[,/ ]', f)[0]          # token dau cua manh moi
+        if is_valid_subject_code(prev_tail) and is_valid_subject_code(cur_head):
+            result = result + '/' + f                 # hai ma hoan chinh -> tach
+        else:
+            result = result + f                       # noi lien (han token bi cat)
+
+    return re.sub(r'[ \t]{2,}', ' ', result).strip()
+
+
 def extract_from_pdf(pdf_source, so_qd="Unknown"):
     """
     Trich xuat du lieu mon tuong duong tu PDF.
@@ -96,6 +156,8 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
     Returns:
         (data_rows, skipped_rows)
+
+    Moi dong data co them truong "effective_date" = ngay soan thao VB.
     """
     data_rows    = []
     skipped_rows = []
@@ -111,6 +173,9 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
         open_target = pdf_source
 
     with pdfplumber.open(open_target) as pdf:
+        # ── Lay ngay hieu luc (1 lan cho ca van ban) ────────────────────
+        effective_date = _extract_effective_date(pdf)
+
         for page_num, page in enumerate(pdf.pages, 1):
             raw_table = page.extract_table({
                 "vertical_strategy": "lines",
@@ -136,9 +201,9 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                                                 "Ma", "hoc phan", "trien khai"]):
                     continue
 
-                # Cot co dinh
-                subject_raw = str(row[1]).strip() if row[1] else ""
-                replace_raw = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+                # Cot co dinh (lam sach \n ngat dong giua ma)
+                subject_raw = _clean_code_cell(row[1]) if row[1] else ""
+                replace_raw = _clean_code_cell(row[2]) if len(row) > 2 and row[2] else ""
 
                 if not subject_raw:
                     continue
@@ -176,9 +241,23 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         })
                     continue
 
-                # Logic equivalent
-                equivalent = "TRUE" if "tương đương" in hinh_thuc else "FALSE"
-                note       = f"{so_qd} {chu_y}".strip()
+                # Logic equivalent:
+                #  - Uu tien o Hinh thuc: co "tương đương" -> TRUE; co "thay thế" -> FALSE.
+                #  - Neu o Hinh thuc KHONG co chu nao (nhan dien hut), quet ca dong;
+                #    uu tien "thay thế" de tranh bat nham "tương đương" trong ghi chu.
+                if "tương đương" in hinh_thuc:
+                    equivalent = "TRUE"
+                elif "thay thế" in hinh_thuc:
+                    equivalent = "FALSE"
+                else:
+                    row_text = " ".join(_normalize(c) for c in row if c)
+                    if "thay thế" in row_text:
+                        equivalent = "FALSE"
+                    elif "tương đương" in row_text:
+                        equivalent = "TRUE"
+                    else:
+                        equivalent = "FALSE"   # khong xac dinh duoc -> mac dinh FALSE
+                note = f"{so_qd} {chu_y}".strip()
 
                 # Xu ly nhieu SubjectCode trong 1 o
                 for sc in re.split(r'[,/\n]+', subject_raw):
@@ -187,67 +266,144 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         data_rows.append({
                             "SubjectCode"   : sc,
                             "Replacecode"   : replace_raw,
-                            "curriculumcode": curriculum,
-                            "replace"       : "TRUE",
-                            "equivalent"    : equivalent,
+                            "CurriculumCode": curriculum,
+                            "Replace"       : "TRUE",
+                            "Equivalent"    : equivalent,
                             "replace_status": "applied",
                             "note"          : note,
-                            "no"            : so_qd
+                            "no"            : so_qd,
+                            "effective_date": effective_date
                         })
 
     return data_rows, skipped_rows
 
 
+def _canon_curriculum(v):
+    """
+    Chuan hoa CurriculumCode de so khop on dinh.
+    Bo NaN/rong, lower, gop khoang trang, tach theo , / va khoang trang,
+    sap xep roi ghep lai bang ','.
+    => "BCS, BIA, BSE, BIT" == "bcs bia bse bit" == "bia,bcs,bit,bse".
+    """
+    s = "" if v is None else str(v).strip()
+    if s.lower() in ("nan", ""):
+        return ""
+    s = s.lower().replace("\n", " ")
+    toks = [t for t in re.split(r"[\s,/]+", s) if t]
+    return ",".join(sorted(toks))
+
+
+def _canon_equivalent(v):
+    """Chuan hoa Equivalent: True/'TRUE'/1 -> 'T'; False/'FALSE'/0 -> 'F'; con lai -> ''."""
+    s = str(v).strip().lower()
+    if s in ("true", "1"):
+        return "T"
+    if s in ("false", "0"):
+        return "F"
+    return ""
+
+
+def _record_key(sc, rc, cur, eq):
+    """
+    Khoa nhan dang 1 ban ghi = (SubjectCode, Replacecode, CurriculumCode, Equivalent),
+    da chuan hoa CurriculumCode va Equivalent.
+    """
+    return (str(sc).strip(), str(rc).strip(),
+            _canon_curriculum(cur), _canon_equivalent(eq))
+
+
 def merge_database(existing_df, new_rows):
     """
-    Gop du lieu QD moi vao database hien co.
+    Gop du lieu nhieu QD vao DB, dung de XAC DINH lai moi dong thuoc QD nao.
 
-    - Cap da co + co trong QD moi  -> cap nhat no/note/curriculum, giu "applied"
-    - Cap da co + KHONG trong QD   -> "expired"
-    - Cap hoan toan moi             -> them moi "applied"
+    Mo hinh "giu tat ca lich su":
+      - Dinh danh 1 dong = (ban ghi 4 truong) + so QD ('no').
+        => Mot ban ghi xuat hien o N QD se co N dong, moi QD 1 dong.
+      - Voi moi QD nap vao: dam bao moi (ban ghi, QD) deu co dong; THIEU thi THEM,
+        kem 'effective_date' cua QD do. Neu dong da ton tai (cung ban ghi + cung
+        no) thi GHI DE lai effective_date theo PDF (PDF la nguon chuan).
+      - Dong cu trong DB ma BAN GHI khong xuat hien o BAT KY QD nao da nap:
+        GIU NGUYEN, va danh dau o cot 'review' = "khong khop QD da nap" de ra tay.
+
+    Luu y: nen nap TAT CA cac QD trong cung mot lan chay de cot 'review' chinh xac
+    (vi 'review' tinh theo tap QD cua lan chay nay).
     """
-    COLS = ["SubjectCode", "Replacecode", "curriculumcode",
-            "replace", "equivalent", "replace_status", "note", "no"]
+    COLS = ["SubjectCode", "Replacecode", "CurriculumCode",
+            "Replace", "Equivalent", "replace_status", "note", "no",
+            "effective_date", "review"]
 
     if not new_rows:
-        return existing_df if existing_df is not None else pd.DataFrame(columns=COLS)
+        if existing_df is None:
+            return pd.DataFrame(columns=COLS)
+        out = existing_df.copy()
+        for c in COLS:
+            if c not in out.columns:
+                out[c] = ""
+        return out[COLS].reset_index(drop=True)
 
-    new_df    = pd.DataFrame(new_rows)
-    new_pairs = set(zip(new_df["SubjectCode"], new_df["Replacecode"]))
+    new_df = pd.DataFrame(new_rows)
 
+    # Tap ban ghi (khoa 4 truong) co trong CAC QD nap vao
+    fed_keys = set()
+    # Membership (khoa 4 truong, no) -> effective_date (PDF la nguon chuan)
+    fed_member_date = {}
+    for r in new_rows:
+        key = _record_key(r.get("SubjectCode"), r.get("Replacecode"),
+                          r.get("CurriculumCode"), r.get("Equivalent"))
+        no  = str(r.get("no", "")).strip()
+        fed_keys.add(key)
+        fed_member_date[(key, no)] = str(r.get("effective_date", "")).strip()
+
+    # DB rong -> tra thang new_df (review rong)
     if existing_df is None or existing_df.empty:
+        for c in COLS:
+            if c not in new_df.columns:
+                new_df[c] = ""
         return new_df[COLS].reset_index(drop=True)
 
-    existing_df    = existing_df.copy()
-    updated_rows   = []
-    existing_pairs = set()
+    existing_df = existing_df.copy()
+    for c in COLS:
+        if c not in existing_df.columns:
+            existing_df[c] = ""
 
-    for _, row in existing_df.iterrows():
-        sc   = str(row.get("SubjectCode", "")).strip()
-        rc   = str(row.get("Replacecode", "")).strip()
-        pair = (sc, rc)
-        existing_pairs.add(pair)
+    existing_members = set()
+    for idx, row in existing_df.iterrows():
+        key = _record_key(row.get("SubjectCode"), row.get("Replacecode"),
+                          row.get("CurriculumCode"), row.get("Equivalent"))
+        no  = str(row.get("no", "")).strip()
+        existing_members.add((key, no))
 
-        if pair in new_pairs:
-            matched               = new_df[(new_df["SubjectCode"] == sc) &
-                                           (new_df["Replacecode"] == rc)].iloc[0]
-            row                   = row.copy()
-            row["no"]             = matched["no"]
-            row["note"]           = matched["note"]
-            row["curriculumcode"] = matched["curriculumcode"]
-            row["replace_status"] = "applied"
+        if (key, no) in fed_member_date:
+            # Dong khop dung QD trong PDF -> xac nhan, ghi de ngay theo PDF
+            existing_df.at[idx, "effective_date"] = fed_member_date[(key, no)]
+            existing_df.at[idx, "review"] = ""
+        elif key in fed_keys:
+            # Ban ghi co trong QD nao do, nhung 'no' cua dong nay khong phai QD do
+            # -> giu nguyen, khong danh dau (ban ghi van duoc nhan dien)
+            existing_df.at[idx, "review"] = ""
         else:
-            row                   = row.copy()
-            row["replace_status"] = "expired"
+            # Ban ghi KHONG co o bat ky QD nao da nap -> giu nguyen + danh dau
+            existing_df.at[idx, "review"] = "khong khop QD da nap"
 
-        updated_rows.append(row)
+    # Them cac (ban ghi, QD) con THIEU
+    rows_to_add = []
+    for _, nr in new_df.iterrows():
+        key = _record_key(nr.get("SubjectCode"), nr.get("Replacecode"),
+                          nr.get("CurriculumCode"), nr.get("Equivalent"))
+        no  = str(nr.get("no", "")).strip()
+        if (key, no) not in existing_members:
+            row = nr.to_dict()
+            row["review"] = ""
+            rows_to_add.append(row)
+            existing_members.add((key, no))
 
-    for _, new_row in new_df.iterrows():
-        pair = (str(new_row["SubjectCode"]).strip(), str(new_row["Replacecode"]).strip())
-        if pair not in existing_pairs:
-            updated_rows.append(new_row)
+    if rows_to_add:
+        add_df = pd.DataFrame(rows_to_add)
+        result = pd.concat([existing_df, add_df], ignore_index=True)
+    else:
+        result = existing_df
 
-    return pd.DataFrame(updated_rows)[COLS].reset_index(drop=True)
+    return result[COLS].reset_index(drop=True)
 
 
 # ── Chay doc lap ──────────────────────────────────────────────────────────────
@@ -269,13 +425,15 @@ if __name__ == "__main__":
             rows, skipped = extract_from_pdf(path)
             all_new_data.extend(rows)
             all_skipped.extend(skipped)
-            print(f"   Trich xuat: {len(rows)} dong")
+            ngay = rows[0]["effective_date"] if rows else "?"
+            print(f"   Trich xuat: {len(rows)} dong | Ngay hieu luc: {ngay}")
             if skipped:
                 print(f"   Bo qua   : {len(skipped)} dong")
 
     if all_new_data:
         existing = pd.read_excel(OUTPUT_FILE) if os.path.exists(OUTPUT_FILE) else None
         final    = merge_database(existing, all_new_data)
+        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
         final.to_excel(OUTPUT_FILE, index=False)
         print(f"\nDa luu {len(final)} dong vao {OUTPUT_FILE}")
 
