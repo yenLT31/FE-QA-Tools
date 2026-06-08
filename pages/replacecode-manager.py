@@ -406,38 +406,95 @@ def merge_database(existing_df, new_rows):
     return result[COLS].reset_index(drop=True)
 
 
-# ── Chay doc lap ──────────────────────────────────────────────────────────────
+# ── Giao dien Streamlit ───────────────────────────────────────────────────────
+# Tren Streamlit Cloud, page chay nhu __main__. KHONG doc thu muc input/ tren dia
+# (gay FileNotFoundError); thay vao do nhan file qua st.file_uploader va xu ly
+# trong bo nho. Cac ham loi o tren van import duoc ma khong can streamlit.
 if __name__ == "__main__":
-    INPUT_DIR   = "input/"
-    OUTPUT_FILE = "output/Database_Tong_Hop.xlsx"
+    import streamlit as st
 
-    all_new_data = []
-    all_skipped  = []
+    st.set_page_config(page_title="Replacecode Manager", page_icon="📄", layout="wide")
+    st.title("📄 Replacecode Manager")
+    st.caption("Gộp các Quyết định (PDF) môn tương đương/thay thế vào DB, "
+               "xác định mỗi dòng thuộc QĐ nào và ngày hiệu lực.")
 
-    pdf_files = [f for f in os.listdir(INPUT_DIR) if f.endswith(".pdf")]
+    col1, col2 = st.columns(2)
+    with col1:
+        db_file = st.file_uploader(
+            "DB Excel hiện có (.xlsx) — để trống nếu tạo mới", type=["xlsx"])
+    with col2:
+        pdf_files = st.file_uploader(
+            "Các file PDF Quyết định (chọn nhiều cùng lúc)",
+            type=["pdf"], accept_multiple_files=True)
 
-    if not pdf_files:
-        print("Khong tim thay file PDF nao trong input/")
-    else:
-        for file in pdf_files:
-            path = os.path.join(INPUT_DIR, file)
-            print(f"\nDang xu ly: {file}")
-            rows, skipped = extract_from_pdf(path)
-            all_new_data.extend(rows)
-            all_skipped.extend(skipped)
-            ngay = rows[0]["effective_date"] if rows else "?"
-            print(f"   Trich xuat: {len(rows)} dong | Ngay hieu luc: {ngay}")
-            if skipped:
-                print(f"   Bo qua   : {len(skipped)} dong")
+    st.info("Mẹo: nạp **tất cả** các QĐ trong một lần để cột `review` "
+            "(đánh dấu dòng không khớp QĐ nào) phản ánh đúng.")
 
-    if all_new_data:
-        existing = pd.read_excel(OUTPUT_FILE) if os.path.exists(OUTPUT_FILE) else None
-        final    = merge_database(existing, all_new_data)
-        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-        final.to_excel(OUTPUT_FILE, index=False)
-        print(f"\nDa luu {len(final)} dong vao {OUTPUT_FILE}")
+    run = st.button("🔄 Gộp dữ liệu", type="primary",
+                    disabled=not pdf_files)
 
-    if all_skipped:
-        print("\nCac dong bi bo qua:")
-        for s in all_skipped:
-            print(f"   Trang {s['page']}: {s['SubjectCode']} -> \"{s['Replacecode_raw']}\"")
+    if run:
+        # 1) Doc DB hien co (neu co)
+        existing = None
+        if db_file is not None:
+            try:
+                existing = pd.read_excel(db_file)
+            except Exception as e:
+                st.error(f"Không đọc được file Excel: {e}")
+                st.stop()
+
+        # 2) Trich xuat tung PDF (so QD lay tu ten file)
+        all_rows, all_skipped, summaries = [], [], []
+        with st.spinner("Đang đọc các file PDF..."):
+            for pf in pdf_files:
+                mt = re.search(r'\d+', pf.name)
+                so_qd = mt.group() if mt else "Unknown"
+                try:
+                    rows, skipped = extract_from_pdf(pf.getvalue(), so_qd=so_qd)
+                except Exception as e:
+                    st.error(f"Lỗi đọc {pf.name}: {e}")
+                    continue
+                all_rows.extend(rows)
+                all_skipped.extend(skipped)
+                ngay = rows[0]["effective_date"] if rows else "?"
+                summaries.append({
+                    "File": pf.name, "Số QĐ": so_qd, "Ngày hiệu lực": ngay,
+                    "Dòng trích": len(rows), "Bỏ qua": len(skipped),
+                })
+
+        if not all_rows:
+            st.warning("Không trích được dòng dữ liệu nào từ các PDF đã nạp.")
+            st.stop()
+
+        # 3) Gop
+        final = merge_database(existing, all_rows)
+
+        before = 0 if existing is None else len(existing)
+        st.success(f"Xong! DB: {before:,} → {len(final):,} dòng "
+                   f"(thêm {len(final) - before:,}).")
+
+        st.subheader("Tóm tắt từng QĐ")
+        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
+
+        if "review" in final.columns:
+            flagged = int((final["review"] == "khong khop QD da nap").sum())
+            if flagged:
+                st.warning(f"⚠️ {flagged:,} dòng được đánh dấu **review** "
+                           f"(bản ghi không khớp QĐ nào đã nạp). Nạp thêm QĐ để giảm con số này.")
+
+        st.subheader("Xem trước (50 dòng đầu)")
+        st.dataframe(final.head(50), use_container_width=True, hide_index=True)
+
+        # 4) Tai ve
+        buf = io.BytesIO()
+        final.to_excel(buf, index=False)
+        buf.seek(0)
+        st.download_button(
+            "⬇️ Tải DB đã cập nhật (.xlsx)", data=buf.getvalue(),
+            file_name="Database_Tong_Hop_da_cap_nhat.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        if all_skipped:
+            with st.expander(f"Các dòng bị bỏ qua khi đọc PDF ({len(all_skipped)})"):
+                st.dataframe(pd.DataFrame(all_skipped), use_container_width=True,
+                             hide_index=True)
