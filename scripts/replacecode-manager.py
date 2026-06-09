@@ -6,6 +6,9 @@ import os
 import unicodedata
 
 
+APP_VERSION = "extract-v2026-06-09-1026-sparse"
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def is_valid_subject_code(s):
@@ -580,6 +583,7 @@ if __name__ == "__main__":
 
     st.set_page_config(page_title="Replacecode Manager", page_icon="📄", layout="wide")
     st.title("📄 Replacecode Manager")
+    st.caption(f"Code version: {APP_VERSION}")
     st.caption("Gộp các Quyết định (PDF) môn tương đương/thay thế vào DB, "
                "xác định mỗi dòng thuộc QĐ nào và ngày hiệu lực.")
 
