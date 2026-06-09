@@ -93,6 +93,10 @@ def _merge_continuation_rows(table):
     for row in table:
         if not row:
             continue
+        # ===== THÊM DEBUG Ở ĐÂY =====
+    if any("ECO111" in str(c) or "ECO121" in str(c) for c in row if c):
+        print(f"RAW ROW: {row}")
+    # ==============================
 
         cell_0 = str(row[0]).strip() if row[0] else ""
 
