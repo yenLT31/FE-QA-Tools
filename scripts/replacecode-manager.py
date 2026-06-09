@@ -18,25 +18,43 @@ def is_valid_subject_code(s):
     return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
 
 
+# Separator NHOM GOP (AND): '+', dau phay, chu "và".
+# Cac ma noi voi nhau bang cac ky tu nay -> 1 to hop, giu chung 1 dong.
+_COMBO_SEP = re.compile(r'\s*(?:\+|,|\bvà\b)\s*', re.IGNORECASE)
+
+
 def _is_code_or_combo(s):
     """
-    Hop le neu la 1 ma don (IOT102) HOAC 1 to hop 'A+B[+...]' ma moi phan
-    deu la ma hop le (vd 'MAD111+MAD121', 'MAD101+AIH301m').
+    Hop le neu la 1 ma don (IOT102) HOAC 1 to hop ma moi phan deu la ma hop le.
+    To hop co the noi bang '+', dau phay, chu "và", HOAC chi cach nhau bang dau cach
+    (vd 'MAD111+MAD121', 'MAD101, MAD111', 'MAD101 và MAD111', 'CHI111 CHI121').
     Dung de KHONG bo qua cac o to hop, va giu nguyen ca cum (khong tach).
     """
     s = s.strip()
     if is_valid_subject_code(s):
         return True
-    parts = [p.strip() for p in s.split('+')]
+    # tach theo separator gop ro rang HOAC dau cach
+    parts = [p for p in re.split(r'\s*(?:\+|,|\bvà\b)\s*|\s+', s, flags=re.IGNORECASE) if p]
     return len(parts) >= 2 and all(is_valid_subject_code(p) for p in parts)
+
+
+def _has_space_separated_codes(s):
+    """
+    True neu trong don vi co cac ma CHI cach nhau bang DAU CACH (khong co +, phay, "và").
+    Day la truong hop MO HO: khong ro la gop hay chon -> can gan co canh bao.
+    Vi du: 'CHI111 CHI121' -> True ; 'MAD101, MAD111' -> False ; 'MAD101+MAD111' -> False.
+    """
+    if not s:
+        return False
+    # Thay cac separator GOP ro rang bang '+' de loai chung ra, roi xem con dau cach khong
+    norm = _COMBO_SEP.sub('+', s.strip())
+    return bool(re.search(r'\S\s+\S', norm))
 
 
 def _normalize(s):
     """
     Chuan hoa chuoi: lower + thay MOI loai khoang trang (xuong dong, tab,
     nhieu space) bang DUNG MOT space, roi strip.
-    Dam bao "Tương \\nđương", "Tương  đương", "Tương\\nđương" deu thanh
-    "tương đương" -> phep kiem 'tương đương' in ... khong bi truot.
     """
     if s is None:
         return ""
@@ -46,14 +64,6 @@ def _normalize(s):
 def _extract_effective_date(pdf, so_qd=None):
     """
     Lay NGAY SOAN THAO VAN BAN (= ngay hieu luc) tu noi dung PDF.
-
-    Truong hop thuong: "Ha Noi, ngay 16 thang 12 nam 2025".
-
-    Truong hop mau ky so co PLACEHOLDER: cong cu ky CHEN cac chu so XEN KE
-    vao placeholder, vd "ngay k0e3yd thang k5eymnam 2024" (k0e3yd = keyd + "03",
-    k5eym = keym + "5"). => Lay token ngay/thang roi RUT CHU SO ra khoi token.
-    Cach nay dung cho ca file thuong lan file placeholder.
-
     Tra ve "DD/MM/YYYY". Neu khong tim thay -> "".
     """
     pat = re.compile(
@@ -64,8 +74,8 @@ def _extract_effective_date(pdf, so_qd=None):
         txt = unicodedata.normalize('NFC', page.extract_text() or "")
         m = pat.search(txt)
         if m:
-            d   = re.sub(r'\D', '', m.group(1))   # rut chu so tu token ngay
-            mth = re.sub(r'\D', '', m.group(2))   # rut chu so tu token thang
+            d   = re.sub(r'\D', '', m.group(1))
+            mth = re.sub(r'\D', '', m.group(2))
             y   = m.group(3)
             if d and mth and 1 <= int(d) <= 31 and 1 <= int(mth) <= 12:
                 return f"{int(d):02d}/{int(mth):02d}/{y}"
@@ -74,16 +84,7 @@ def _extract_effective_date(pdf, so_qd=None):
 
 def _merge_continuation_rows(table):
     """
-    Gop dong tiep noi vao dong chinh truoc do.
-
-    Dong tiep noi: row[0] la None hoac rong (khong co so thu tu).
-    pdfplumber thuong tach cell nhieu dong thanh nhieu row rieng biet.
-
-    Vi du:
-        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay', ...]
-        Row 10: [None, None, ..., None, ..., 'the', ...]
-        -> Sau gop:
-        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay the', ...]
+    Gop dong tiep noi (row[0] rong) vao dong chinh truoc do.
     """
     if not table:
         return []
@@ -95,13 +96,10 @@ def _merge_continuation_rows(table):
 
         cell_0 = str(row[0]).strip() if row[0] else ""
 
-        # Dong tiep noi: row[0] rong va da co dong truoc
         if not cell_0 and merged:
             prev = merged[-1]
-            # Dam bao prev du do dai
             while len(prev) < len(row):
                 prev.append(None)
-            # Gop tung cell: append noi dung moi vao cell cu
             for i, cell in enumerate(row):
                 if cell and str(cell).strip():
                     val = str(cell).strip()
@@ -117,38 +115,36 @@ def _merge_continuation_rows(table):
 
 def _find_hinh_thuc_idx(row):
     """
-    Tim vi tri cot Hinh thuc trong row (sau khi da gop continuation rows).
-    Do o chua 'tuong duong' hoac 'thay the'.
+    Tim vi tri cot Hinh thuc (o chua 'tuong duong' hoac 'thay the').
     Mac dinh tra ve 4 neu khong tim thay.
     """
     for i in range(2, len(row)):
         val = _normalize(row[i])
         if "tương đương" in val or "thay thế" in val:
             return i
-    return 4  # fallback
+    return 4
 
 
-# ── Ham chinh ─────────────────────────────────────────────────────────────────
+# ── Lam sach o ma mon ─────────────────────────────────────────────────────────
 
 def _clean_code_cell(v):
     """
-    Lam sach o chua MA mon (SubjectCode / Replacecode).
-
-    PDF cot hep ngat dong giua chuoi -> pdfplumber chen '\\n'. Co 2 kieu:
-      (a) Ngat GIUA mot token  : 'C\\nSI102'->'CSI102', 'ITA203\\nc'->'ITA203c'
-      (b) Liet ke NHIEU ma     : 'SAL301/\\nIBC201/\\nIBI101', 'A\\nhoặc\\nB'
-
-    Xu ly:
-      - "hoặc"/"và" -> '/' (thanh dau tach de tach thanh nhieu ma o buoc sau).
-      - Voi moi '\\n': NOI LIEN neu mot ben la manh vo (token khong phai ma hop le)
-        -> han gan token bi cat; nguoc lai (hai ben deu la ma hop le) -> dung '/'.
+    Lam sach o chua MA mon (SubjectCode / Replacecode), theo quy uoc:
+      - Nhom CHON (OR)  : chu "hoặc" -> '/'  (se duoc TACH thanh nhieu dong sau).
+      - Nhom GOP (AND)  : chu "và", dau phay ',', dau cong '+' -> GIU NGUYEN ky tu goc,
+                          chi gon khoang trang (vd 'MAD101 và MAD111', 'MAD101, MAD111').
+      - PDF cot hep ngat dong giua chuoi -> pdfplumber chen '\\n':
+          (a) ngat GIUA mot token (manh vo)  -> NOI LIEN de han token bi cat;
+          (b) ngat giua HAI ma hoan chinh     -> noi bang DAU CACH (se duoc gan co canh bao).
     """
     if v is None:
         return ""
     s = str(v)
-    # "hoặc"/"và" -> '/'. Cho phep ma sau DINH LIEN (vd "hoặcCPV301"):
-    # bat dau bang word-boundary truoc, theo sau la 1 chu/so (lookahead) thay vi \b sau.
-    s = re.sub(r'[\s\n]*\b(hoặc|hoăc|và)\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
+
+    # Nhom CHON: "hoặc" -> '/' (cho phep ma sau dinh lien, vd "hoặcCPV301")
+    s = re.sub(r'[\s\n]*\b(hoặc|hoăc)\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
+    # Nhom GOP: giu chu "và", chuan hoa khoang trang/xuong dong quanh no thanh ' và '
+    s = re.sub(r'[\s\n]*\bvà\b[\s\n]*(?=[A-Za-z0-9])', ' và ', s, flags=re.IGNORECASE)
 
     frags = [f.strip() for f in s.split('\n') if f.strip()]
     if not frags:
@@ -159,36 +155,28 @@ def _clean_code_cell(v):
         prev_tail = re.split(r'[,/ ]', result)[-1]   # token cuoi cua phan da gop
         cur_head  = re.split(r'[,/ ]', f)[0]          # token dau cua manh moi
         if is_valid_subject_code(prev_tail) and is_valid_subject_code(cur_head):
-            result = result + '/' + f                 # hai ma hoan chinh -> tach
+            result = result + ' ' + f                 # hai ma hoan chinh -> noi bang dau cach
         else:
             result = result + f                       # noi lien (han token bi cat)
 
+    # Gon khoang trang & cac separator GOP (GIU nguyen ky tu goc , va +)
+    result = re.sub(r'\s*\+\s*', '+', result)     # gon quanh '+'
+    result = re.sub(r'\s*,\s*', ', ', result)     # gon quanh ',' -> ', '
     result = re.sub(r'[ \t]{2,}', ' ', result).strip()
-    # Tho gon khoang trang quanh '+' (giu to hop dang "A+B")
-    result = re.sub(r'\s*\+\s*', '+', result)
-
-    # Tach ma ngan nhau bang DAU CACH: neu tat ca token deu la ma hop le -> noi '/'
-    # (vd "CHI111 CHI121" -> "CHI111/CHI121"). Cell mo ta (co tu thuong/khong phai
-    # ma) se khong thoa -> giu nguyen.
-    parts = result.split(' ')
-    if len(parts) >= 2 and all(is_valid_subject_code(p) for p in parts):
-        result = '/'.join(parts)
 
     return result
 
+
+# ── Ham chinh ─────────────────────────────────────────────────────────────────
 
 def extract_from_pdf(pdf_source, so_qd="Unknown"):
     """
     Trich xuat du lieu mon tuong duong tu PDF.
 
-    Args:
-        pdf_source : duong dan file (str) hoac bytes / BytesIO
-        so_qd      : so quyet dinh
-
     Returns:
         (data_rows, skipped_rows)
 
-    Moi dong data co them truong "effective_date" = ngay soan thao VB.
+    Moi dong data co them truong "effective_date" va "canh_bao".
     """
     data_rows    = []
     skipped_rows = []
@@ -204,7 +192,6 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
         open_target = pdf_source
 
     with pdfplumber.open(open_target) as pdf:
-        # ── Lay ngay hieu luc (1 lan cho ca van ban) ────────────────────
         effective_date = _extract_effective_date(pdf, so_qd)
 
         for page_num, page in enumerate(pdf.pages, 1):
@@ -215,12 +202,7 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
             if not raw_table:
                 continue
 
-            # ── BUOC 1: Gop dong tiep noi truoc khi parse ────────────────
             table = _merge_continuation_rows(raw_table)
-
-            # Chuan hoa Unicode NFC: PDF co the ma hoa tieng Viet kieu to hop
-            # (vd "ặ" = ă + dau nang roi U+0323). NFC dua ve dang dung san de
-            # moi phep so chuoi tieng Viet ("hoặc", "tương đương"...) khop dung.
             table = [[unicodedata.normalize('NFC', str(c)) if c is not None else c
                       for c in row] for row in table]
 
@@ -231,28 +213,20 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 cell_0 = str(row[0]).strip() if row[0] else ""
                 cell_1 = str(row[1]).strip() if row[1] else ""
 
-                # Bo qua dong tieu de
                 if any(kw in cell_0 for kw in ["TT", "STT"]):
                     continue
                 if any(kw in cell_1 for kw in ["Mã", "học phần", "triển khai",
                                                 "Ma", "hoc phan", "trien khai"]):
                     continue
 
-                # Cot co dinh (lam sach \n ngat dong giua ma)
                 subject_raw = _clean_code_cell(row[1]) if row[1] else ""
                 replace_raw = _clean_code_cell(row[2]) if len(row) > 2 and row[2] else ""
 
                 if not subject_raw:
                     continue
 
-                # ── BUOC 2: Tim vi tri cot Hinh thuc ─────────────────────
-                # Sau khi gop row, "Thay the" da nam trong 1 cell
-                # _find_hinh_thuc_idx bat dau tu col 2 (skip TT, SubjectCode)
                 ht_idx = _find_hinh_thuc_idx(row)
 
-                # ── BUOC 3: Lay curriculum ────────────────────────────────
-                # Gom tat ca cell khong rong tu row[3] den truoc ht_idx
-                # (bo qua row[2] vi do la Replacecode)
                 curriculum_parts = []
                 for i in range(3, ht_idx):
                     if row[i] and str(row[i]).strip():
@@ -260,15 +234,14 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         curriculum_parts.append(part)
                 curriculum = ", ".join(curriculum_parts)
 
-                # ── BUOC 4: Lay Hinh thuc va Chu y ───────────────────────
                 hinh_thuc = _normalize(row[ht_idx]) if len(row) > ht_idx else ""
                 chu_y = ""
                 if len(row) > ht_idx + 2 and row[ht_idx + 2]:
                     chu_y = str(row[ht_idx + 2]).strip().replace('\n', ' ')
 
-                # Bo qua neu Replacecode la mo ta van ban (chap nhan ca to hop A+B)
-                first_code = replace_raw.split(',')[0].split('/')[0].strip()
-                if not replace_raw or not _is_code_or_combo(first_code):
+                # Bo qua neu Replacecode la mo ta van ban (xet alternative dau tien)
+                first_alt = replace_raw.split('/')[0].strip()
+                if not replace_raw or not _is_code_or_combo(first_alt):
                     if subject_raw and replace_raw:
                         skipped_rows.append({
                             "page"           : page_num,
@@ -278,10 +251,7 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         })
                     continue
 
-                # Logic equivalent:
-                #  - Uu tien o Hinh thuc: co "tương đương" -> TRUE; co "thay thế" -> FALSE.
-                #  - Neu o Hinh thuc KHONG co chu nao (nhan dien hut), quet ca dong;
-                #    uu tien "thay thế" de tranh bat nham "tương đương" trong ghi chu.
+                # Logic equivalent
                 if "tương đương" in hinh_thuc:
                     equivalent = "TRUE"
                 elif "thay thế" in hinh_thuc:
@@ -293,25 +263,33 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                     elif "tương đương" in row_text:
                         equivalent = "TRUE"
                     else:
-                        equivalent = "FALSE"   # khong xac dinh duoc -> mac dinh FALSE
+                        equivalent = "FALSE"
                 note = f"{so_qd} {chu_y}".strip()
 
-                # Xu ly nhieu SubjectCode trong 1 o (tach , / xuong dong,
-                # NHUNG khong tach '+': giu nguyen ca to hop "A+B")
-                for sc in re.split(r'[,/\n]+', subject_raw):
+                # Co canh bao cho Replacecode (mo ho dau cach)?
+                warn_rc = _has_space_separated_codes(replace_raw)
+
+                # Tach SubjectCode: CHI tach theo '/' (OR) va xuong dong.
+                # KHONG tach ',' '+' 'và' (nhom GOP) -> to hop giu nguyen 1 dong.
+                for sc in re.split(r'[/\n]+', subject_raw):
                     sc = sc.strip()
-                    if sc and _is_code_or_combo(sc):
-                        data_rows.append({
-                            "SubjectCode"   : sc,
-                            "Replacecode"   : replace_raw,
-                            "CurriculumCode": curriculum,
-                            "Replace"       : "TRUE",
-                            "Equivalent"    : equivalent,
-                            "replace_status": "applied",
-                            "note"          : note,
-                            "no"            : so_qd,
-                            "effective_date": effective_date
-                        })
+                    if not sc or not _is_code_or_combo(sc):
+                        continue
+                    # Co canh bao neu SubjectCode HOAC Replacecode mo ho dau cach
+                    warn = _has_space_separated_codes(sc) or warn_rc
+                    canh_bao = "ma cach nhau bang dau cach - can kiem tra gop/chon" if warn else ""
+                    data_rows.append({
+                        "SubjectCode"   : sc,
+                        "Replacecode"   : replace_raw,
+                        "CurriculumCode": curriculum,
+                        "Replace"       : "TRUE",
+                        "Equivalent"    : equivalent,
+                        "replace_status": "applied",
+                        "note"          : note,
+                        "no"            : so_qd,
+                        "effective_date": effective_date,
+                        "canh_bao"      : canh_bao
+                    })
 
     return data_rows, skipped_rows
 
@@ -319,9 +297,6 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 def _canon_curriculum(v):
     """
     Chuan hoa CurriculumCode de so khop on dinh.
-    Bo NaN/rong, lower, gop khoang trang, tach theo , / va khoang trang,
-    sap xep roi ghep lai bang ','.
-    => "BCS, BIA, BSE, BIT" == "bcs bia bse bit" == "bia,bcs,bit,bse".
     """
     s = "" if v is None else str(v).strip()
     if s.lower() in ("nan", ""):
@@ -332,7 +307,7 @@ def _canon_curriculum(v):
 
 
 def _canon_equivalent(v):
-    """Chuan hoa Equivalent: True/'TRUE'/1 -> 'T'; False/'FALSE'/0 -> 'F'; con lai -> ''."""
+    """Chuan hoa Equivalent: True -> 'T'; False -> 'F'; con lai -> ''."""
     s = str(v).strip().lower()
     if s in ("true", "1"):
         return "T"
@@ -343,8 +318,8 @@ def _canon_equivalent(v):
 
 def _record_key(sc, rc, cur, eq):
     """
-    Khoa nhan dang 1 ban ghi = (SubjectCode, Replacecode, CurriculumCode, Equivalent),
-    da chuan hoa CurriculumCode va Equivalent.
+    Khoa nhan dang 1 ban ghi = (SubjectCode, Replacecode, CurriculumCode, Equivalent).
+    SubjectCode/Replacecode so theo CHUOI GOC (khong chuan hoa) theo yeu cau.
     """
     return (str(sc).strip(), str(rc).strip(),
             _canon_curriculum(cur), _canon_equivalent(eq))
@@ -352,23 +327,12 @@ def _record_key(sc, rc, cur, eq):
 
 def merge_database(existing_df, new_rows):
     """
-    Gop du lieu nhieu QD vao DB, dung de XAC DINH lai moi dong thuoc QD nao.
-
-    Mo hinh "giu tat ca lich su":
-      - Dinh danh 1 dong = (ban ghi 4 truong) + so QD ('no').
-        => Mot ban ghi xuat hien o N QD se co N dong, moi QD 1 dong.
-      - Voi moi QD nap vao: dam bao moi (ban ghi, QD) deu co dong; THIEU thi THEM,
-        kem 'effective_date' cua QD do. Neu dong da ton tai (cung ban ghi + cung
-        no) thi GHI DE lai effective_date theo PDF (PDF la nguon chuan).
-      - Dong cu trong DB ma BAN GHI khong xuat hien o BAT KY QD nao da nap:
-        GIU NGUYEN, va danh dau o cot 'review' = "khong khop QD da nap" de ra tay.
-
-    Luu y: nen nap TAT CA cac QD trong cung mot lan chay de cot 'review' chinh xac
-    (vi 'review' tinh theo tap QD cua lan chay nay).
+    Gop du lieu nhieu QD vao DB, xac dinh lai moi dong thuoc QD nao.
+    Mo hinh "giu tat ca lich su" (chi tiet xem ban goc).
     """
     COLS = ["SubjectCode", "Replacecode", "CurriculumCode",
             "Replace", "Equivalent", "replace_status", "note", "no",
-            "effective_date", "review"]
+            "effective_date", "canh_bao", "review"]
 
     if not new_rows:
         if existing_df is None:
@@ -381,9 +345,7 @@ def merge_database(existing_df, new_rows):
 
     new_df = pd.DataFrame(new_rows)
 
-    # Tap ban ghi (khoa 4 truong) co trong CAC QD nap vao
     fed_keys = set()
-    # Membership (khoa 4 truong, no) -> effective_date (PDF la nguon chuan)
     fed_member_date = {}
     for r in new_rows:
         key = _record_key(r.get("SubjectCode"), r.get("Replacecode"),
@@ -392,7 +354,6 @@ def merge_database(existing_df, new_rows):
         fed_keys.add(key)
         fed_member_date[(key, no)] = str(r.get("effective_date", "")).strip()
 
-    # DB rong -> tra thang new_df (review rong)
     if existing_df is None or existing_df.empty:
         for c in COLS:
             if c not in new_df.columns:
@@ -412,18 +373,13 @@ def merge_database(existing_df, new_rows):
         existing_members.add((key, no))
 
         if (key, no) in fed_member_date:
-            # Dong khop dung QD trong PDF -> xac nhan, ghi de ngay theo PDF
             existing_df.at[idx, "effective_date"] = fed_member_date[(key, no)]
             existing_df.at[idx, "review"] = ""
         elif key in fed_keys:
-            # Ban ghi co trong QD nao do, nhung 'no' cua dong nay khong phai QD do
-            # -> giu nguyen, khong danh dau (ban ghi van duoc nhan dien)
             existing_df.at[idx, "review"] = ""
         else:
-            # Ban ghi KHONG co o bat ky QD nao da nap -> giu nguyen + danh dau
             existing_df.at[idx, "review"] = "khong khop QD da nap"
 
-    # Them cac (ban ghi, QD) con THIEU
     rows_to_add = []
     for _, nr in new_df.iterrows():
         key = _record_key(nr.get("SubjectCode"), nr.get("Replacecode"),
@@ -445,9 +401,6 @@ def merge_database(existing_df, new_rows):
 
 
 # ── Giao dien Streamlit ───────────────────────────────────────────────────────
-# Tren Streamlit Cloud, page chay nhu __main__. KHONG doc thu muc input/ tren dia
-# (gay FileNotFoundError); thay vao do nhan file qua st.file_uploader va xu ly
-# trong bo nho. Cac ham loi o tren van import duoc ma khong can streamlit.
 if __name__ == "__main__":
     import streamlit as st
 
@@ -472,7 +425,6 @@ if __name__ == "__main__":
                     disabled=not pdf_files)
 
     if run:
-        # 1) Doc DB hien co (neu co)
         existing = None
         if db_file is not None:
             try:
@@ -481,7 +433,6 @@ if __name__ == "__main__":
                 st.error(f"Không đọc được file Excel: {e}")
                 st.stop()
 
-        # 2) Trich xuat tung PDF (so QD lay tu ten file)
         all_rows, all_skipped, summaries = [], [], []
         with st.spinner("Đang đọc các file PDF..."):
             for pf in pdf_files:
@@ -495,16 +446,16 @@ if __name__ == "__main__":
                 all_rows.extend(rows)
                 all_skipped.extend(skipped)
                 ngay = rows[0]["effective_date"] if rows else "?"
+                warn_n = sum(1 for r in rows if r.get("canh_bao"))
                 summaries.append({
                     "File": pf.name, "Số QĐ": so_qd, "Ngày hiệu lực": ngay,
-                    "Dòng trích": len(rows), "Bỏ qua": len(skipped),
+                    "Dòng trích": len(rows), "Cảnh báo": warn_n, "Bỏ qua": len(skipped),
                 })
 
         if not all_rows:
             st.warning("Không trích được dòng dữ liệu nào từ các PDF đã nạp.")
             st.stop()
 
-        # 3) Gop
         final = merge_database(existing, all_rows)
 
         before = 0 if existing is None else len(existing)
@@ -513,6 +464,12 @@ if __name__ == "__main__":
 
         st.subheader("Tóm tắt từng QĐ")
         st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
+
+        if "canh_bao" in final.columns:
+            warned = int((final["canh_bao"] != "").sum())
+            if warned:
+                st.warning(f"⚠️ {warned:,} dòng có **cảnh báo** (mã cách nhau bằng dấu cách "
+                           f"— chưa rõ là gộp hay chọn). Hãy rà các dòng có cột `canh_bao`.")
 
         if "review" in final.columns:
             flagged = int((final["review"] == "khong khop QD da nap").sum())
@@ -523,7 +480,6 @@ if __name__ == "__main__":
         st.subheader("Xem trước (50 dòng đầu)")
         st.dataframe(final.head(50), use_container_width=True, hide_index=True)
 
-        # 4) Tai ve
         buf = io.BytesIO()
         final.to_excel(buf, index=False)
         buf.seek(0)
