@@ -20,7 +20,11 @@ def is_valid_subject_code(s):
 
 # Separator NHOM GOP (AND): '+', dau phay, chu "và".
 # Cac ma noi voi nhau bang cac ky tu nay -> 1 to hop, giu chung 1 dong.
-_COMBO_SEP = re.compile(r'\s*(?:\+|,|\bvà\b)\s*', re.IGNORECASE)
+_AND_WORDS = ("và", "và", "vÃ ")
+_OR_WORDS = ("hoặc", "hoăc", "hoac", "hoáº·c", "hoÄƒc")
+_AND_WORD_RE = r'(?:' + '|'.join(re.escape(w) for w in _AND_WORDS) + r')'
+_OR_WORD_RE = r'(?:' + '|'.join(re.escape(w) for w in _OR_WORDS) + r')'
+_COMBO_SEP = re.compile(r'\s*(?:\+|,|\b' + _AND_WORD_RE + r'\b)\s*', re.IGNORECASE)
 
 
 def _is_code_or_combo(s):
@@ -34,7 +38,7 @@ def _is_code_or_combo(s):
     if is_valid_subject_code(s):
         return True
     # tach theo separator gop ro rang HOAC dau cach
-    parts = [p for p in re.split(r'\s*(?:\+|,|\bvà\b)\s*|\s+', s, flags=re.IGNORECASE) if p]
+    parts = [p for p in re.split(r'\s*(?:\+|,|\b' + _AND_WORD_RE + r'\b)\s*|\s+', s, flags=re.IGNORECASE) if p]
     return len(parts) >= 2 and all(is_valid_subject_code(p) for p in parts)
 
 
@@ -93,10 +97,6 @@ def _merge_continuation_rows(table):
     for row in table:
         if not row:
             continue
-        # ===== THÊM DEBUG Ở ĐÂY =====
-    if any("ECO111" in str(c) or "ECO121" in str(c) for c in row if c):
-        print(f"RAW ROW: {row}")
-    # ==============================
 
         cell_0 = str(row[0]).strip() if row[0] else ""
 
@@ -146,9 +146,9 @@ def _clean_code_cell(v):
     s = str(v)
 
     # Nhom CHON: "hoặc" -> '/' (cho phep ma sau dinh lien, vd "hoặcCPV301")
-    s = re.sub(r'[\s\n]*\b(hoặc|hoăc)\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
+    s = re.sub(r'[\s\n]*\b' + _OR_WORD_RE + r'\b\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
     # Nhom GOP: giu chu "và", chuan hoa khoang trang/xuong dong quanh no thanh ' và '
-    s = re.sub(r'[\s\n]*\bvà\b[\s\n]*(?=[A-Za-z0-9])', ' và ', s, flags=re.IGNORECASE)
+    s = re.sub(r'[\s\n]*\b' + _AND_WORD_RE + r'\b[\s\n]*(?=[A-Za-z0-9])', ' và ', s, flags=re.IGNORECASE)
 
     frags = [f.strip() for f in s.split('\n') if f.strip()]
     if not frags:
@@ -158,7 +158,11 @@ def _clean_code_cell(v):
     for f in frags[1:]:
         prev_tail = re.split(r'[,/ ]', result)[-1]   # token cuoi cua phan da gop
         cur_head  = re.split(r'[,/ ]', f)[0]          # token dau cua manh moi
-        if is_valid_subject_code(prev_tail) and is_valid_subject_code(cur_head):
+        if _COMBO_SEP.fullmatch(f):
+            result = result.rstrip() + ' và '
+        elif result.endswith(' và '):
+            result = result + f
+        elif is_valid_subject_code(prev_tail) and is_valid_subject_code(cur_head):
             result = result + ' ' + f                 # hai ma hoan chinh -> noi bang dau cach
         else:
             result = result + f                       # noi lien (han token bi cat)
