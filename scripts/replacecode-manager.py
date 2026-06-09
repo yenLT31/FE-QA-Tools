@@ -147,6 +147,151 @@ def _find_hinh_thuc_idx(row):
     return 4
 
 
+def _has_code_alt(s):
+    if not s:
+        return False
+    return any(_is_code_or_combo(p.strip()) for p in re.split(r'[/\n]+', s) if p.strip())
+
+
+def _is_record_no(v):
+    if v is None:
+        return False
+    return bool(re.fullmatch(r'\d{1,4}', str(v).strip()))
+
+
+def _find_record_no_pos(row):
+    for i, cell in enumerate(row[:3]):
+        if _is_record_no(cell):
+            return i
+    return None
+
+
+def _append_cell(acc, col, cell):
+    if cell is None or not str(cell).strip():
+        return
+    val = str(cell).strip().replace('\n', ' ')
+    if col in acc and acc[col]:
+        acc[col] = f"{acc[col]} {val}"
+    else:
+        acc[col] = val
+
+
+def _merge_sparse_records(table):
+    """
+    Gom layout PDF bi tach thanh nhieu cot nho theo tung STT.
+    QD 1026 co dang nay, khong dung duoc row[1]/row[2] co dinh.
+    """
+    records = []
+    current = None
+
+    for row in table:
+        if not row:
+            continue
+        no_pos = _find_record_no_pos(row)
+        if no_pos is not None:
+            if current:
+                records.append(current)
+            current = {}
+
+        if current is None:
+            continue
+
+        for col, cell in enumerate(row):
+            _append_cell(current, col, cell)
+
+    if current:
+        records.append(current)
+
+    return records
+
+
+def _sparse_record_to_row(rec):
+    cols = sorted(rec)
+    no_pos = next((c for c in cols[:3] if _is_record_no(rec[c])), None)
+    if no_pos is None:
+        return None
+
+    ht_pos = None
+    for c in cols:
+        val = _normalize(rec[c])
+        if "tương đương" in val or "thay thế" in val:
+            ht_pos = c
+            break
+    if ht_pos is None:
+        return None
+
+    subject_pos = None
+    subject_raw = ""
+    for c in cols:
+        if c <= no_pos or c >= ht_pos:
+            continue
+        cleaned = _clean_code_cell(rec[c])
+        cleaned = _restore_and_separator(cleaned, rec[c])
+        if _has_code_alt(cleaned):
+            subject_pos = c
+            subject_raw = cleaned
+            break
+
+    replace_pos = None
+    replace_raw = ""
+    if subject_pos is not None:
+        for c in cols:
+            if c <= subject_pos or c >= ht_pos:
+                continue
+            cleaned = _clean_code_cell(rec[c])
+            cleaned = _restore_and_separator(cleaned, rec[c])
+            first_alt = cleaned.split('/')[0].strip()
+            if _is_code_or_combo(first_alt):
+                replace_pos = c
+                replace_raw = cleaned
+                break
+
+    if subject_pos is None:
+        return None
+
+    curriculum = ""
+    if replace_pos is not None:
+        curriculum_parts = [
+            rec[c].replace('\n', ' ')
+            for c in cols
+            if replace_pos < c < ht_pos and rec[c].strip()
+        ]
+        curriculum = ", ".join(curriculum_parts)
+
+    status_pos = next(
+        (
+            c for c in cols
+            if c > ht_pos and any(x in _normalize(rec[c]) for x in ["bổ sung", "cập nhật"])
+        ),
+        None
+    )
+    note_start = status_pos if status_pos is not None else ht_pos
+    note = " ".join(rec[c].replace('\n', ' ') for c in cols if c > note_start and rec[c].strip())
+
+    return [
+        rec[no_pos],
+        subject_raw,
+        replace_raw,
+        curriculum,
+        rec[ht_pos],
+        rec[status_pos] if status_pos is not None else "",
+        note,
+    ]
+
+
+def _normalize_extracted_table(raw_table):
+    max_cols = max((len(r) for r in raw_table), default=0)
+    if max_cols <= 10:
+        return _merge_continuation_rows(raw_table)
+
+    rows = []
+    for rec in _merge_sparse_records(raw_table):
+        logical_row = _sparse_record_to_row(rec)
+        if logical_row:
+            rows.append(logical_row)
+    return rows
+
+
 # ── Lam sach o ma mon ─────────────────────────────────────────────────────────
 
 def _clean_code_cell(v):
@@ -164,6 +309,7 @@ def _clean_code_cell(v):
     s = str(v)
 
     # Nhom CHON: "hoặc" -> '/' (cho phep ma sau dinh lien, vd "hoặcCPV301")
+    s = re.sub(r'[\s\n]*\bho\s+c\b\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
     s = re.sub(r'[\s\n]*\b' + _OR_WORD_RE + r'\b\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
     # Nhom GOP: giu chu "và", chuan hoa khoang trang/xuong dong quanh no thanh ' và '
     s = re.sub(r'[\s\n]*\b' + _AND_WORD_RE + r'\b[\s\n]*(?=[A-Za-z0-9])', ' và ', s, flags=re.IGNORECASE)
@@ -228,7 +374,7 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
             if not raw_table:
                 continue
 
-            table = _merge_continuation_rows(raw_table)
+            table = _normalize_extracted_table(raw_table)
             table = [[unicodedata.normalize('NFC', str(c)) if c is not None else c
                       for c in row] for row in table]
 
