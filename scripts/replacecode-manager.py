@@ -6,7 +6,7 @@ import os
 import unicodedata
 
 
-APP_VERSION = "extract-v2026-06-09-1026-sparse"
+APP_VERSION = "extract-v2026-06-09-history-review"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -502,6 +502,59 @@ def _record_key(sc, rc, cur, eq):
             _canon_curriculum(cur), _canon_equivalent(eq))
 
 
+def _split_combo_parts(v):
+    s = "" if v is None else str(v).strip()
+    return [p.strip() for p in _COMBO_SEP.split(s) if p.strip()]
+
+
+def _and_combo_to_slash(v):
+    parts = _split_combo_parts(v)
+    return "/".join(parts) if len(parts) >= 2 else str(v).strip()
+
+
+def _mark_split_artifacts(df):
+    """
+    Danh dau cac dong nghi tach sai sinh ra tu bug cu, khong xoa lich su.
+    Vi du combo dung: ECO111 va ECO121 -> ECO102 va CIH201
+    artifact cu: ECO111 -> ECO102/CIH201 va ECO121 -> ECO102/CIH201.
+    """
+    if df.empty:
+        return df
+
+    combo_rows = []
+    for _, r in df.iterrows():
+        sc_parts = _split_combo_parts(r.get("SubjectCode"))
+        rc_parts = _split_combo_parts(r.get("Replacecode"))
+        if len(sc_parts) >= 2 and len(rc_parts) >= 2:
+            combo_rows.append({
+                "sc_parts": sc_parts,
+                "slash_rc": "/".join(rc_parts),
+                "no": str(r.get("no", "")).strip(),
+                "cur": _canon_curriculum(r.get("CurriculumCode")),
+                "eq": _canon_equivalent(r.get("Equivalent")),
+            })
+
+    if not combo_rows:
+        return df
+
+    out = df.copy()
+    for idx, row in out.iterrows():
+        old_sc = str(row.get("SubjectCode", "")).strip()
+        old_rc = str(row.get("Replacecode", "")).strip()
+        for combo in combo_rows:
+            same_no = str(row.get("no", "")).strip() == combo["no"]
+            same_cur = _canon_curriculum(row.get("CurriculumCode")) == combo["cur"]
+            same_eq = _canon_equivalent(row.get("Equivalent")) == combo["eq"]
+            old_sc = str(row.get("SubjectCode", "")).strip()
+            old_rc = str(row.get("Replacecode", "")).strip()
+
+            if same_no and same_cur and same_eq and old_sc in combo["sc_parts"] and old_rc == combo["slash_rc"]:
+                out.at[idx, "review"] = "nghi tach sai tu dong combo"
+                break
+
+    return out
+
+
 def merge_database(existing_df, new_rows):
     """
     Gop du lieu nhieu QD vao DB, xac dinh lai moi dong thuoc QD nao.
@@ -520,15 +573,21 @@ def merge_database(existing_df, new_rows):
                 out[c] = ""
         return out[COLS].reset_index(drop=True)
 
-    new_df = pd.DataFrame(new_rows)
+    new_df = pd.DataFrame(new_rows).drop_duplicates(
+        subset=["SubjectCode", "Replacecode", "CurriculumCode", "Equivalent", "no"],
+        keep="first"
+    )
+    new_rows = new_df.to_dict("records")
 
     fed_keys = set()
+    fed_nos = set()
     fed_member_date = {}
     for r in new_rows:
         key = _record_key(r.get("SubjectCode"), r.get("Replacecode"),
                           r.get("CurriculumCode"), r.get("Equivalent"))
         no  = str(r.get("no", "")).strip()
         fed_keys.add(key)
+        fed_nos.add(no)
         fed_member_date[(key, no)] = str(r.get("effective_date", "")).strip()
 
     if existing_df is None or existing_df.empty:
@@ -552,7 +611,7 @@ def merge_database(existing_df, new_rows):
         if (key, no) in fed_member_date:
             existing_df.at[idx, "effective_date"] = fed_member_date[(key, no)]
             existing_df.at[idx, "review"] = ""
-        elif key in fed_keys:
+        elif no not in fed_nos:
             existing_df.at[idx, "review"] = ""
         else:
             existing_df.at[idx, "review"] = "khong khop QD da nap"
@@ -573,6 +632,8 @@ def merge_database(existing_df, new_rows):
         result = pd.concat([existing_df, add_df], ignore_index=True)
     else:
         result = existing_df
+
+    result = _mark_split_artifacts(result)
 
     return result[COLS].reset_index(drop=True)
 
