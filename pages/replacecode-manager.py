@@ -1,500 +1,463 @@
-import pdfplumber
+import streamlit as st
 import pandas as pd
-import re
-import io
-import os
+import io, base64, re, requests, os
+import pdfplumber
+import importlib.util
 
+# ── Load logic ────────────────────────────────────────────────────────────────
+def load_script_module():
+    path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts", "replacecode-manager.py"))
+    spec = importlib.util.spec_from_file_location("rm", path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+try:
+    rm               = load_script_module()
+    extract_from_pdf = rm.extract_from_pdf
+    merge_database   = rm.merge_database
+    APP_VERSION      = getattr(rm, "APP_VERSION", "unknown")
+except Exception as e:
+    st.error(f"Không load được scripts/replacecode-manager.py: {e}")
+    st.stop()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+def to_excel_bytes(df):
+    buf = io.BytesIO(); df.to_excel(buf, index=False); buf.seek(0); return buf.getvalue()
 
-def is_valid_subject_code(s):
-    """
-    Kiem tra ma mon hop le.
-    Hop le : IOT102, NWC303, SYB302c, PRU211m, AIL303m
-    Khong hop le : "Thay the bang mon combo khac..."
-    """
-    s = s.strip()
-    return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
-
-
-def _normalize(s):
-    """
-    Chuan hoa chuoi: lower + thay MOI loai khoang trang (xuong dong, tab,
-    nhieu space) bang DUNG MOT space, roi strip.
-    Dam bao "Tương \\nđương", "Tương  đương", "Tương\\nđương" deu thanh
-    "tương đương" -> phep kiem 'tương đương' in ... khong bi truot.
-    """
-    if s is None:
-        return ""
-    return re.sub(r'\s+', ' ', str(s).lower()).strip()
-
-
-def _extract_effective_date(pdf):
-    """
-    Lay NGAY SOAN THAO VAN BAN (= ngay hieu luc) tu noi dung PDF.
-
-    Trong van ban QD cua DHFPT, ngay nay nam o header trang dau,
-    mau: "Ha Noi, ngay 16 thang 12 nam 2025"
-    (va lap lai o header moi phu luc).
-
-    Tra ve chuoi "DD/MM/YYYY", vd "16/12/2025". Neu khong tim thay -> "".
-    Chi quet vai trang dau cho nhanh, lay lan khop dau tien.
-    """
-    pat = re.compile(
-        r'ng[aà]y\s+(\d{1,2})\s+th[aá]ng\s+(\d{1,2})\s+n[aă]m\s+(\d{4})',
-        re.IGNORECASE
+def fetch_db_from_github(token, repo):
+    resp = requests.get(
+        f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx",
+        headers={"Authorization": f"token {token}"}
     )
-    for page in pdf.pages[:3]:
-        txt = page.extract_text() or ""
-        m = pat.search(txt)
-        if m:
-            d, mth, y = m.groups()
-            return f"{int(d):02d}/{int(mth):02d}/{y}"
-    return ""
+    if resp.status_code == 200:
+        d = resp.json()
+        return pd.read_excel(io.BytesIO(base64.b64decode(d["content"]))), d["sha"]
+    return None, None
 
+def commit_to_github(token, repo, excel_bytes, so_qd, sha=None):
+    payload = {
+        "message": f"chore: update database QD {so_qd}",
+        "content": base64.b64encode(excel_bytes).decode()
+    }
+    if sha: payload["sha"] = sha
+    resp = requests.put(
+        f"https://api.github.com/repos/{repo}/contents/output/Database_Tong_Hop.xlsx",
+        json=payload,
+        headers={"Authorization": f"token {token}", "Content-Type": "application/json"}
+    )
+    return resp.status_code in [200, 201], resp.json().get("message", "")
 
-def _merge_continuation_rows(table):
-    """
-    Gop dong tiep noi vao dong chinh truoc do.
+def read_raw_rows(pdf_bytes, max_rows=80):
+    rows = []
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for pg, page in enumerate(pdf.pages, 1):
+            tbl = page.extract_table({"vertical_strategy": "lines", "horizontal_strategy": "lines"})
+            if tbl:
+                for i, row in enumerate(tbl):
+                    rows.append({"page": pg, "row": i, "cells": row})
+                    if len(rows) >= max_rows: return rows
+    return rows
 
-    Dong tiep noi: row[0] la None hoac rong (khong co so thu tu).
-    pdfplumber thuong tach cell nhieu dong thanh nhieu row rieng biet.
+# ── Theme ─────────────────────────────────────────────────────────────────────
+if "theme" not in st.session_state:
+    st.session_state.theme = "dark"
 
-    Vi du:
-        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay', ...]
-        Row 10: [None, None, ..., None, ..., 'the', ...]
-        -> Sau gop:
-        Row 9:  ['4', 'AIP391', 'AIL303m', ..., 'BIT_AI', ..., 'Thay the', ...]
-    """
-    if not table:
-        return []
+DARK = dict(
+    bg="#080D18", card="#0F1628", card2="#162040", border="#1E2D4A",
+    text="#E8EDF5", muted="#8892A4", accent="#00D4AA", accent_dim="#00A882",
+    green="#22C55E", red="#EF4444", blue="#60A5FA",
+    gbg="#052E16", gtxt="#22C55E", rbg="#2D0A0A", rtxt="#EF4444",
+)
+LIGHT = dict(
+    bg="#F0F4F8", card="#FFFFFF", card2="#F7F9FC", border="#E2E8F0",
+    text="#1A2540", muted="#64748B", accent="#0A9E7F", accent_dim="#077A62",
+    green="#16A34A", red="#DC2626", blue="#2563EB",
+    gbg="#DCFCE7", gtxt="#15803D", rbg="#FEE2E2", rtxt="#991B1B",
+)
+T = DARK if st.session_state.theme == "dark" else LIGHT
 
-    merged = []
-    for row in table:
-        if not row:
-            continue
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(page_title="ReplaceCode Manager", page_icon="QA", layout="wide", initial_sidebar_state="expanded")
 
-        cell_0 = str(row[0]).strip() if row[0] else ""
+# ── Fonts ─────────────────────────────────────────────────────────────────────
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True
+)
 
-        # Dong tiep noi: row[0] rong va da co dong truoc
-        if not cell_0 and merged:
-            prev = merged[-1]
-            # Dam bao prev du do dai
-            while len(prev) < len(row):
-                prev.append(None)
-            # Gop tung cell: append noi dung moi vao cell cu
-            for i, cell in enumerate(row):
-                if cell and str(cell).strip():
-                    val = str(cell).strip()
-                    if prev[i]:
-                        prev[i] = str(prev[i]).rstrip() + ' ' + val
-                    else:
-                        prev[i] = val
+# ── CSS vars ──────────────────────────────────────────────────────────────────
+st.markdown(f"""<style>:root{{
+--bg:{T['bg']};--card:{T['card']};--card2:{T['card2']};--border:{T['border']};
+--text:{T['text']};--muted:{T['muted']};--accent:{T['accent']};--adim:{T['accent_dim']};
+--green:{T['green']};--red:{T['red']};--blue:{T['blue']};
+--gbg:{T['gbg']};--gtxt:{T['gtxt']};--rbg:{T['rbg']};--rtxt:{T['rtxt']};
+}}</style>""", unsafe_allow_html=True)
+
+# ── CSS rules — KHÔNG override font toàn cục (giữ Material Icons của Streamlit) ──
+st.markdown("""<style>
+/* App background */
+.stApp { background: var(--bg) !important; }
+header[data-testid="stHeader"] { background: transparent !important; border-bottom: none !important; height: 2.875rem !important; overflow: visible !important; }
+.block-container { padding-top: 0 !important; max-width: 1300px !important; }
+
+/* Sidebar */
+[data-testid="stSidebar"] { background: var(--card) !important; border-right: 1px solid var(--border) !important; }
+section[data-testid="stMain"] { padding-left: 1rem !important; }
+
+/* Typography — CHỈ target text elements, không phải icon */
+.stMarkdown p, .stMarkdown span, .stMarkdown div,
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+[data-testid="stMetricLabel"] span,
+.stTextInput label {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    color: var(--text) !important;
+}
+
+/* Text input */
+.stTextInput input {
+    background: var(--card2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    color: var(--text) !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-size: 14px !important;
+    padding: 10px 14px !important;
+    transition: border-color .2s, box-shadow .2s;
+}
+.stTextInput input:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px rgba(0,212,170,.12) !important;
+}
+.stTextInput input::placeholder { color: var(--muted) !important; }
+
+/* File uploader — ẩn label bị duplicate */
+[data-testid="stFileUploader"] {
+    background: var(--card2) !important;
+    border: 1.5px dashed var(--border) !important;
+    border-radius: 14px !important;
+    transition: border-color .2s !important;
+}
+[data-testid="stFileUploader"]:hover { border-color: var(--accent) !important; }
+[data-testid="stFileUploaderDropzone"] { background: transparent !important; }
+/* Ẩn label text thừa của file uploader */
+[data-testid="stFileUploader"] > label { display: none !important; }
+
+/* Buttons */
+.stButton > button {
+    background: var(--accent) !important;
+    color: #080D18 !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 10px 22px !important;
+    transition: all .2s !important;
+}
+.stButton > button:hover {
+    background: var(--adim) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 18px rgba(0,212,170,.22) !important;
+}
+.stButton > button:disabled {
+    background: var(--card2) !important;
+    color: var(--muted) !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Download button */
+[data-testid="stDownloadButton"] > button {
+    background: var(--card2) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border) !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-weight: 600 !important;
+    border-radius: 10px !important;
+    padding: 10px 22px !important;
+    transition: all .2s;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}
+
+/* Metrics */
+[data-testid="stMetric"] {
+    background: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    padding: 18px 20px !important;
+}
+[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: .8px; }
+[data-testid="stMetricValue"] { color: var(--text) !important; font-size: 28px !important; font-weight: 800 !important; }
+
+/* Selectbox */
+[data-testid="stSelectbox"] > div > div {
+    background: var(--card2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+}
+
+/* Dataframe */
+[data-testid="stDataFrame"] { border: 1px solid var(--border) !important; border-radius: 14px !important; overflow: hidden !important; }
+
+/* Alerts */
+.stSuccess { background: var(--gbg) !important; border-left: 3px solid var(--green) !important; border-radius: 10px !important; }
+.stError   { background: var(--rbg) !important; border-left: 3px solid var(--red)   !important; border-radius: 10px !important; }
+.stInfo    { background: var(--card2) !important; border-left: 3px solid var(--blue) !important; border-radius: 10px !important; }
+.stWarning { background: var(--card2) !important; border-left: 3px solid #D97706    !important; border-radius: 10px !important; }
+
+/* Expander */
+[data-testid="stExpander"] { background: var(--card) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; }
+
+/* Checkbox */
+.stCheckbox span { color: var(--text) !important; font-size: 13px !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--card); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+/* ── Nút đóng/mở sidebar: ẩn text + hiện icon xanh ── */
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"] {{
+    font-size: 0px !important;
+    overflow: hidden !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: inline-block !important;
+}}
+button[data-testid="stExpandSidebarButton"] [data-testid="stIconMaterial"]::after {{
+    content: "»" !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
+}}
+[data-testid="stSidebarCollapseButton"] [data-testid="stIconMaterial"]::after {{
+    content: "«" !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    color: {T['accent']} !important;
+    font-family: sans-serif !important;
+}}
+
+</style>""", unsafe_allow_html=True)
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(f"""
+    <div style="padding:16px 0 20px;border-bottom:1px solid {T['border']};margin-bottom:20px">
+        <div style="font-size:15px;font-weight:800;color:{T['accent']};letter-spacing:-.3px">📋 ReplaceCode</div>
+        <div style="font-size:10px;color:{T['muted']};font-weight:600;letter-spacing:.9px;text-transform:uppercase;margin-top:2px">Manager</div>
+    </div>
+    <p style="font-size:10px;color:{T['muted']};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:8px">Giao diện</p>
+    """, unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("☀ Sáng", use_container_width=True, key="btn_light"):
+            st.session_state.theme = "light"; st.rerun()
+    with c2:
+        if st.button("🌙 Tối", use_container_width=True, key="btn_dark"):
+            st.session_state.theme = "dark"; st.rerun()
+
+    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
+    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:10px">GitHub</p>', unsafe_allow_html=True)
+
+    try:
+        github_token = st.secrets["github"]["token"]
+        github_repo  = st.secrets["github"].get("repo", "yenLT31/FE-QA-Tools")
+        st.markdown(f'<div style="background:{T["gbg"]};border:1px solid {T["green"]}33;border-radius:10px;padding:9px 13px;margin-bottom:10px"><span style="color:{T["green"]};font-size:13px;font-weight:600">● Token đã cấu hình</span></div>', unsafe_allow_html=True)
+    except Exception:
+        github_token, github_repo = "", "yenLT31/FE-QA-Tools"
+        st.markdown(f'<div style="background:{T["rbg"]};border:1px solid {T["red"]}33;border-radius:10px;padding:9px 13px;margin-bottom:10px"><span style="color:{T["red"]};font-size:13px;font-weight:600">⚠ Chưa có token</span></div>', unsafe_allow_html=True)
+
+    st.markdown(f'<code style="font-size:11px;color:{T["muted"]}">{github_repo}</code>', unsafe_allow_html=True)
+    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>', unsafe_allow_html=True)
+    st.markdown(f'<p style="font-size:10px;color:{T["muted"]};font-weight:700;letter-spacing:.9px;text-transform:uppercase;margin-bottom:8px">Công cụ</p>', unsafe_allow_html=True)
+    debug_mode = st.checkbox("🔍 Debug pdfplumber", value=False)
+
+# ── Helpers UI ────────────────────────────────────────────────────────────────
+def divider():
+    st.markdown(f'<div style="height:1px;background:{T["border"]};margin:24px 0"></div>', unsafe_allow_html=True)
+
+def step_label(num, title, sub=""):
+    sub_html = f'<div style="font-size:12px;color:{T["muted"]};margin-top:2px">{sub}</div>' if sub else ""
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+        <div style="background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});color:#080D18;
+                    font-size:11px;font-weight:800;border-radius:8px;padding:5px 10px;
+                    letter-spacing:.5px;flex-shrink:0;font-family:'Plus Jakarta Sans',sans-serif">{num}</div>
+        <div>
+            <div style="font-size:16px;font-weight:700;color:{T['text']};letter-spacing:-.3px;
+                        font-family:'Plus Jakarta Sans',sans-serif">{title}</div>
+            {sub_html}
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+# ── Page header ───────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div style="background:{T['card']};border-bottom:1px solid {T['border']};
+            padding:28px 0 24px;margin:-1rem 0 0">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="color:{T['accent']};font-size:12px;font-weight:700;letter-spacing:.9px;
+                     text-transform:uppercase;font-family:'Plus Jakarta Sans',sans-serif">ReplaceCode Manager</span>
+        <span style="background:{T['gbg']};color:{T['gtxt']};font-size:11px;font-weight:700;
+                     padding:2px 9px;border-radius:20px;font-family:'Plus Jakarta Sans',sans-serif">● LIVE</span>
+    </div>
+    <h1 style="font-size:26px;font-weight:800;color:{T['text']};letter-spacing:-.5px;margin:0 0 6px;
+               font-family:'Plus Jakarta Sans',sans-serif">Quản lý môn tương đương</h1>
+    <p style="color:{T['muted']};font-size:14px;margin:0;font-family:'Plus Jakarta Sans',sans-serif">
+        Cập nhật danh sách môn thay thế / tương đương từ Quyết định PDF
+    </p>
+    <p style="color:{T['muted']};font-size:11px;margin:8px 0 0;font-family:'Plus Jakarta Sans',sans-serif">
+        Code version: {APP_VERSION}
+    </p>
+</div>
+<div style="height:28px"></div>
+""", unsafe_allow_html=True)
+
+# ── 01 Upload ─────────────────────────────────────────────────────────────────
+step_label("01", "Tải lên file", "Upload PDF Quyết định và database hiện có")
+
+col1, col2 = st.columns(2, gap="large")
+with col1:
+    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;font-family:\'Plus Jakarta Sans\',sans-serif">📄 File PDF Quyết định</p>', unsafe_allow_html=True)
+    uploaded_pdf  = st.file_uploader("PDF Quyết định", type=["pdf"], key="pdf_upload")
+    so_qd_input   = st.text_input("Số Quyết định", placeholder="Tự detect từ tên file nếu để trống")
+
+with col2:
+    st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;font-family:\'Plus Jakarta Sans\',sans-serif">📊 Database hiện có (tùy chọn)</p>', unsafe_allow_html=True)
+    uploaded_excel = st.file_uploader("Database Excel", type=["xlsx"], key="excel_upload")
+    if not uploaded_excel:
+        clr = T['green'] if github_token else "#D97706"
+        txt = "● Tự fetch từ GitHub" if github_token else "⚠ Sẽ tạo database mới"
+        st.markdown(f'<p style="color:{clr};font-size:13px;font-weight:500;margin-top:6px;font-family:\'Plus Jakarta Sans\',sans-serif">{txt}</p>', unsafe_allow_html=True)
+
+if debug_mode and uploaded_pdf:
+    b = uploaded_pdf.read(); uploaded_pdf.seek(0)
+    rows = read_raw_rows(b)
+    with st.expander(f"🔍 Raw pdfplumber — {len(rows)} rows"):
+        for r in rows:
+            st.code(f"T{r['page']} R{r['row']}: {r['cells']}", language=None)
+
+divider()
+
+# ── 02 Process ────────────────────────────────────────────────────────────────
+step_label("02", "Xử lý dữ liệu", "Trích xuất và merge với database hiện có")
+
+btn_process = st.button(
+    "▶  Bắt đầu xử lý" if uploaded_pdf else "⬆  Upload PDF trước",
+    type="primary", disabled=not uploaded_pdf
+)
+
+if btn_process:
+    with st.spinner("Đang xử lý..."):
+        so_qd = so_qd_input.strip()
+        if not so_qd:
+            m = re.search(r'\d+', uploaded_pdf.name)
+            so_qd = m.group() if m else "Unknown"
+
+        pdf_bytes          = uploaded_pdf.read()
+        new_rows, skipped  = extract_from_pdf(pdf_bytes, so_qd=so_qd)
+        existing_df, github_sha = None, None
+
+        if uploaded_excel:
+            existing_df = pd.read_excel(uploaded_excel)
+            st.info(f"Database từ file upload: **{len(existing_df)} dòng**")
+        elif github_token:
+            existing_df, github_sha = fetch_db_from_github(github_token, github_repo)
+            if existing_df is not None:
+                st.info(f"Database từ GitHub: **{len(existing_df)} dòng**")
+            else:
+                st.warning("Chưa có database — sẽ tạo mới")
         else:
-            merged.append(list(row))
-
-    return merged
-
-
-def _find_hinh_thuc_idx(row):
-    """
-    Tim vi tri cot Hinh thuc trong row (sau khi da gop continuation rows).
-    Do o chua 'tuong duong' hoac 'thay the'.
-    Mac dinh tra ve 4 neu khong tim thay.
-    """
-    for i in range(2, len(row)):
-        val = _normalize(row[i])
-        if "tương đương" in val or "thay thế" in val:
-            return i
-    return 4  # fallback
-
-
-# ── Ham chinh ─────────────────────────────────────────────────────────────────
-
-def _clean_code_cell(v):
-    """
-    Lam sach o chua MA mon (SubjectCode / Replacecode).
-
-    PDF cot hep ngat dong giua chuoi -> pdfplumber chen '\\n'. Co 2 kieu:
-      (a) Ngat GIUA mot token  : 'C\\nSI102'->'CSI102', 'ITA203\\nc'->'ITA203c'
-      (b) Liet ke NHIEU ma     : 'SAL301/\\nIBC201/\\nIBI101', 'A\\nhoặc\\nB'
-
-    Xu ly:
-      - "hoặc"/"và" -> '/' (thanh dau tach de tach thanh nhieu ma o buoc sau).
-      - Voi moi '\\n': NOI LIEN neu mot ben la manh vo (token khong phai ma hop le)
-        -> han gan token bi cat; nguoc lai (hai ben deu la ma hop le) -> dung '/'.
-    """
-    if v is None:
-        return ""
-    s = str(v)
-    # "hoặc"/"và" (kem khoang trang/xuong dong xung quanh) -> '/'
-    s = re.sub(r'[\s\n]*\b(hoặc|và)\b[\s\n]*', '/', s, flags=re.IGNORECASE)
-
-    frags = [f.strip() for f in s.split('\n') if f.strip()]
-    if not frags:
-        return ""
-
-    result = frags[0]
-    for f in frags[1:]:
-        prev_tail = re.split(r'[,/ ]', result)[-1]   # token cuoi cua phan da gop
-        cur_head  = re.split(r'[,/ ]', f)[0]          # token dau cua manh moi
-        if is_valid_subject_code(prev_tail) and is_valid_subject_code(cur_head):
-            result = result + '/' + f                 # hai ma hoan chinh -> tach
-        else:
-            result = result + f                       # noi lien (han token bi cat)
-
-    return re.sub(r'[ \t]{2,}', ' ', result).strip()
-
-
-def extract_from_pdf(pdf_source, so_qd="Unknown"):
-    """
-    Trich xuat du lieu mon tuong duong tu PDF.
-
-    Args:
-        pdf_source : duong dan file (str) hoac bytes / BytesIO
-        so_qd      : so quyet dinh
-
-    Returns:
-        (data_rows, skipped_rows)
-
-    Moi dong data co them truong "effective_date" = ngay soan thao VB.
-    """
-    data_rows    = []
-    skipped_rows = []
-
-    if isinstance(pdf_source, str):
-        file_name   = os.path.basename(pdf_source)
-        match       = re.search(r'\d+', file_name)
-        so_qd       = match.group() if match else so_qd
-        open_target = pdf_source
-    elif isinstance(pdf_source, bytes):
-        open_target = io.BytesIO(pdf_source)
-    else:
-        open_target = pdf_source
-
-    with pdfplumber.open(open_target) as pdf:
-        # ── Lay ngay hieu luc (1 lan cho ca van ban) ────────────────────
-        effective_date = _extract_effective_date(pdf)
-
-        for page_num, page in enumerate(pdf.pages, 1):
-            raw_table = page.extract_table({
-                "vertical_strategy": "lines",
-                "horizontal_strategy": "lines"
-            })
-            if not raw_table:
-                continue
-
-            # ── BUOC 1: Gop dong tiep noi truoc khi parse ────────────────
-            table = _merge_continuation_rows(raw_table)
-
-            for row in table:
-                if not row or len(row) < 5:
-                    continue
-
-                cell_0 = str(row[0]).strip() if row[0] else ""
-                cell_1 = str(row[1]).strip() if row[1] else ""
-
-                # Bo qua dong tieu de
-                if any(kw in cell_0 for kw in ["TT", "STT"]):
-                    continue
-                if any(kw in cell_1 for kw in ["Mã", "học phần", "triển khai",
-                                                "Ma", "hoc phan", "trien khai"]):
-                    continue
-
-                # Cot co dinh (lam sach \n ngat dong giua ma)
-                subject_raw = _clean_code_cell(row[1]) if row[1] else ""
-                replace_raw = _clean_code_cell(row[2]) if len(row) > 2 and row[2] else ""
-
-                if not subject_raw:
-                    continue
-
-                # ── BUOC 2: Tim vi tri cot Hinh thuc ─────────────────────
-                # Sau khi gop row, "Thay the" da nam trong 1 cell
-                # _find_hinh_thuc_idx bat dau tu col 2 (skip TT, SubjectCode)
-                ht_idx = _find_hinh_thuc_idx(row)
-
-                # ── BUOC 3: Lay curriculum ────────────────────────────────
-                # Gom tat ca cell khong rong tu row[3] den truoc ht_idx
-                # (bo qua row[2] vi do la Replacecode)
-                curriculum_parts = []
-                for i in range(3, ht_idx):
-                    if row[i] and str(row[i]).strip():
-                        part = str(row[i]).strip().replace('\n', ' ')
-                        curriculum_parts.append(part)
-                curriculum = ", ".join(curriculum_parts)
-
-                # ── BUOC 4: Lay Hinh thuc va Chu y ───────────────────────
-                hinh_thuc = _normalize(row[ht_idx]) if len(row) > ht_idx else ""
-                chu_y = ""
-                if len(row) > ht_idx + 2 and row[ht_idx + 2]:
-                    chu_y = str(row[ht_idx + 2]).strip().replace('\n', ' ')
-
-                # Bo qua neu Replacecode la mo ta van ban
-                first_code = replace_raw.split(',')[0].split('/')[0].strip()
-                if not replace_raw or not is_valid_subject_code(first_code):
-                    if subject_raw and replace_raw:
-                        skipped_rows.append({
-                            "page"           : page_num,
-                            "SubjectCode"    : subject_raw,
-                            "Replacecode_raw": replace_raw,
-                            "ly_do"          : "Replacecode khong phai ma mon"
-                        })
-                    continue
-
-                # Logic equivalent:
-                #  - Uu tien o Hinh thuc: co "tương đương" -> TRUE; co "thay thế" -> FALSE.
-                #  - Neu o Hinh thuc KHONG co chu nao (nhan dien hut), quet ca dong;
-                #    uu tien "thay thế" de tranh bat nham "tương đương" trong ghi chu.
-                if "tương đương" in hinh_thuc:
-                    equivalent = "TRUE"
-                elif "thay thế" in hinh_thuc:
-                    equivalent = "FALSE"
-                else:
-                    row_text = " ".join(_normalize(c) for c in row if c)
-                    if "thay thế" in row_text:
-                        equivalent = "FALSE"
-                    elif "tương đương" in row_text:
-                        equivalent = "TRUE"
-                    else:
-                        equivalent = "FALSE"   # khong xac dinh duoc -> mac dinh FALSE
-                note = f"{so_qd} {chu_y}".strip()
-
-                # Xu ly nhieu SubjectCode trong 1 o
-                for sc in re.split(r'[,/\n]+', subject_raw):
-                    sc = sc.strip()
-                    if sc and is_valid_subject_code(sc):
-                        data_rows.append({
-                            "SubjectCode"   : sc,
-                            "Replacecode"   : replace_raw,
-                            "CurriculumCode": curriculum,
-                            "Replace"       : "TRUE",
-                            "Equivalent"    : equivalent,
-                            "replace_status": "applied",
-                            "note"          : note,
-                            "no"            : so_qd,
-                            "effective_date": effective_date
-                        })
-
-    return data_rows, skipped_rows
-
-
-def _canon_curriculum(v):
-    """
-    Chuan hoa CurriculumCode de so khop on dinh.
-    Bo NaN/rong, lower, gop khoang trang, tach theo , / va khoang trang,
-    sap xep roi ghep lai bang ','.
-    => "BCS, BIA, BSE, BIT" == "bcs bia bse bit" == "bia,bcs,bit,bse".
-    """
-    s = "" if v is None else str(v).strip()
-    if s.lower() in ("nan", ""):
-        return ""
-    s = s.lower().replace("\n", " ")
-    toks = [t for t in re.split(r"[\s,/]+", s) if t]
-    return ",".join(sorted(toks))
-
-
-def _canon_equivalent(v):
-    """Chuan hoa Equivalent: True/'TRUE'/1 -> 'T'; False/'FALSE'/0 -> 'F'; con lai -> ''."""
-    s = str(v).strip().lower()
-    if s in ("true", "1"):
-        return "T"
-    if s in ("false", "0"):
-        return "F"
-    return ""
-
-
-def _record_key(sc, rc, cur, eq):
-    """
-    Khoa nhan dang 1 ban ghi = (SubjectCode, Replacecode, CurriculumCode, Equivalent),
-    da chuan hoa CurriculumCode va Equivalent.
-    """
-    return (str(sc).strip(), str(rc).strip(),
-            _canon_curriculum(cur), _canon_equivalent(eq))
-
-
-def merge_database(existing_df, new_rows):
-    """
-    Gop du lieu nhieu QD vao DB, dung de XAC DINH lai moi dong thuoc QD nao.
-
-    Mo hinh "giu tat ca lich su":
-      - Dinh danh 1 dong = (ban ghi 4 truong) + so QD ('no').
-        => Mot ban ghi xuat hien o N QD se co N dong, moi QD 1 dong.
-      - Voi moi QD nap vao: dam bao moi (ban ghi, QD) deu co dong; THIEU thi THEM,
-        kem 'effective_date' cua QD do. Neu dong da ton tai (cung ban ghi + cung
-        no) thi GHI DE lai effective_date theo PDF (PDF la nguon chuan).
-      - Dong cu trong DB ma BAN GHI khong xuat hien o BAT KY QD nao da nap:
-        GIU NGUYEN, va danh dau o cot 'review' = "khong khop QD da nap" de ra tay.
-
-    Luu y: nen nap TAT CA cac QD trong cung mot lan chay de cot 'review' chinh xac
-    (vi 'review' tinh theo tap QD cua lan chay nay).
-    """
-    COLS = ["SubjectCode", "Replacecode", "CurriculumCode",
-            "Replace", "Equivalent", "replace_status", "note", "no",
-            "effective_date", "review"]
-
-    if not new_rows:
-        if existing_df is None:
-            return pd.DataFrame(columns=COLS)
-        out = existing_df.copy()
-        for c in COLS:
-            if c not in out.columns:
-                out[c] = ""
-        return out[COLS].reset_index(drop=True)
-
-    new_df = pd.DataFrame(new_rows)
-
-    # Tap ban ghi (khoa 4 truong) co trong CAC QD nap vao
-    fed_keys = set()
-    # Membership (khoa 4 truong, no) -> effective_date (PDF la nguon chuan)
-    fed_member_date = {}
-    for r in new_rows:
-        key = _record_key(r.get("SubjectCode"), r.get("Replacecode"),
-                          r.get("CurriculumCode"), r.get("Equivalent"))
-        no  = str(r.get("no", "")).strip()
-        fed_keys.add(key)
-        fed_member_date[(key, no)] = str(r.get("effective_date", "")).strip()
-
-    # DB rong -> tra thang new_df (review rong)
-    if existing_df is None or existing_df.empty:
-        for c in COLS:
-            if c not in new_df.columns:
-                new_df[c] = ""
-        return new_df[COLS].reset_index(drop=True)
-
-    existing_df = existing_df.copy()
-    for c in COLS:
-        if c not in existing_df.columns:
-            existing_df[c] = ""
-
-    existing_members = set()
-    for idx, row in existing_df.iterrows():
-        key = _record_key(row.get("SubjectCode"), row.get("Replacecode"),
-                          row.get("CurriculumCode"), row.get("Equivalent"))
-        no  = str(row.get("no", "")).strip()
-        existing_members.add((key, no))
-
-        if (key, no) in fed_member_date:
-            # Dong khop dung QD trong PDF -> xac nhan, ghi de ngay theo PDF
-            existing_df.at[idx, "effective_date"] = fed_member_date[(key, no)]
-            existing_df.at[idx, "review"] = ""
-        elif key in fed_keys:
-            # Ban ghi co trong QD nao do, nhung 'no' cua dong nay khong phai QD do
-            # -> giu nguyen, khong danh dau (ban ghi van duoc nhan dien)
-            existing_df.at[idx, "review"] = ""
-        else:
-            # Ban ghi KHONG co o bat ky QD nao da nap -> giu nguyen + danh dau
-            existing_df.at[idx, "review"] = "khong khop QD da nap"
-
-    # Them cac (ban ghi, QD) con THIEU
-    rows_to_add = []
-    for _, nr in new_df.iterrows():
-        key = _record_key(nr.get("SubjectCode"), nr.get("Replacecode"),
-                          nr.get("CurriculumCode"), nr.get("Equivalent"))
-        no  = str(nr.get("no", "")).strip()
-        if (key, no) not in existing_members:
-            row = nr.to_dict()
-            row["review"] = ""
-            rows_to_add.append(row)
-            existing_members.add((key, no))
-
-    if rows_to_add:
-        add_df = pd.DataFrame(rows_to_add)
-        result = pd.concat([existing_df, add_df], ignore_index=True)
-    else:
-        result = existing_df
-
-    return result[COLS].reset_index(drop=True)
-
-
-# ── Giao dien Streamlit ───────────────────────────────────────────────────────
-# Tren Streamlit Cloud, page chay nhu __main__. KHONG doc thu muc input/ tren dia
-# (gay FileNotFoundError); thay vao do nhan file qua st.file_uploader va xu ly
-# trong bo nho. Cac ham loi o tren van import duoc ma khong can streamlit.
-if __name__ == "__main__":
-    import streamlit as st
-
-    st.set_page_config(page_title="Replacecode Manager", page_icon="📄", layout="wide")
-    st.title("📄 Replacecode Manager")
-    st.caption("Gộp các Quyết định (PDF) môn tương đương/thay thế vào DB, "
-               "xác định mỗi dòng thuộc QĐ nào và ngày hiệu lực.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        db_file = st.file_uploader(
-            "DB Excel hiện có (.xlsx) — để trống nếu tạo mới", type=["xlsx"])
-    with col2:
-        pdf_files = st.file_uploader(
-            "Các file PDF Quyết định (chọn nhiều cùng lúc)",
-            type=["pdf"], accept_multiple_files=True)
-
-    st.info("Mẹo: nạp **tất cả** các QĐ trong một lần để cột `review` "
-            "(đánh dấu dòng không khớp QĐ nào) phản ánh đúng.")
-
-    run = st.button("🔄 Gộp dữ liệu", type="primary",
-                    disabled=not pdf_files)
-
-    if run:
-        # 1) Doc DB hien co (neu co)
-        existing = None
-        if db_file is not None:
-            try:
-                existing = pd.read_excel(db_file)
-            except Exception as e:
-                st.error(f"Không đọc được file Excel: {e}")
-                st.stop()
-
-        # 2) Trich xuat tung PDF (so QD lay tu ten file)
-        all_rows, all_skipped, summaries = [], [], []
-        with st.spinner("Đang đọc các file PDF..."):
-            for pf in pdf_files:
-                mt = re.search(r'\d+', pf.name)
-                so_qd = mt.group() if mt else "Unknown"
-                try:
-                    rows, skipped = extract_from_pdf(pf.getvalue(), so_qd=so_qd)
-                except Exception as e:
-                    st.error(f"Lỗi đọc {pf.name}: {e}")
-                    continue
-                all_rows.extend(rows)
-                all_skipped.extend(skipped)
-                ngay = rows[0]["effective_date"] if rows else "?"
-                summaries.append({
-                    "File": pf.name, "Số QĐ": so_qd, "Ngày hiệu lực": ngay,
-                    "Dòng trích": len(rows), "Bỏ qua": len(skipped),
-                })
-
-        if not all_rows:
-            st.warning("Không trích được dòng dữ liệu nào từ các PDF đã nạp.")
-            st.stop()
-
-        # 3) Gop
-        final = merge_database(existing, all_rows)
-
-        before = 0 if existing is None else len(existing)
-        st.success(f"Xong! DB: {before:,} → {len(final):,} dòng "
-                   f"(thêm {len(final) - before:,}).")
-
-        st.subheader("Tóm tắt từng QĐ")
-        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
-
-        if "review" in final.columns:
-            flagged = int((final["review"] == "khong khop QD da nap").sum())
-            if flagged:
-                st.warning(f"⚠️ {flagged:,} dòng được đánh dấu **review** "
-                           f"(bản ghi không khớp QĐ nào đã nạp). Nạp thêm QĐ để giảm con số này.")
-
-        st.subheader("Xem trước (50 dòng đầu)")
-        st.dataframe(final.head(50), use_container_width=True, hide_index=True)
-
-        # 4) Tai ve
-        buf = io.BytesIO()
-        final.to_excel(buf, index=False)
-        buf.seek(0)
+            st.warning("Không có database cũ — sẽ tạo mới từ QĐ này")
+
+        final_df = merge_database(existing_df, new_rows)
+        st.session_state.update(dict(
+            final_df=final_df, existing_df=existing_df,
+            new_rows=new_rows, skipped=skipped,
+            so_qd=so_qd, github_sha=github_sha
+        ))
+        st.success(f"✓ Hoàn tất — trích xuất **{len(new_rows)} dòng** từ QĐ {so_qd}")
+        if skipped:
+            with st.expander(f"⚠  {len(skipped)} dòng bị bỏ qua"):
+                st.dataframe(pd.DataFrame(skipped), use_container_width=True)
+
+# ── 03 Results ────────────────────────────────────────────────────────────────
+if "final_df" in st.session_state:
+    fd  = st.session_state["final_df"]
+    ed  = st.session_state["existing_df"]
+    nr  = st.session_state["new_rows"]
+    qd  = st.session_state["so_qd"]
+    sha = st.session_state["github_sha"]
+
+    divider()
+    step_label("03", "Kết quả", f"QĐ {qd} — tổng {len(fd)} bản ghi")
+
+    old_pairs = set(zip(ed["SubjectCode"], ed["Replacecode"])) if ed is not None else set()
+    n_app = int((fd["replace_status"] == "applied").sum())
+    n_exp = int((fd["replace_status"] == "expired").sum())
+    n_new = sum(1 for r in nr if (r["SubjectCode"], r["Replacecode"]) not in old_pairs)
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Tổng bản ghi",  len(fd))
+    m2.metric("Đang hiệu lực", n_app)
+    m3.metric("Hết hiệu lực",  n_exp)
+    m4.metric("Thêm mới",      n_new)
+    m5.metric("Cập nhật",      len(nr) - n_new)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    f1, f2, f3 = st.columns([1, 1, 2])
+    with f1: fs = st.selectbox("Trạng thái", ["Tất cả", "applied", "expired"])
+    with f2: fe = st.selectbox("Hình thức",  ["Tất cả", "Tương đương", "Thay thế"])
+    with f3: fk = st.text_input("Tìm mã môn", placeholder="VD: IOT102, NWC303...")
+
+    df = fd.copy()
+    if fs != "Tất cả": df = df[df["replace_status"] == fs]
+    if fe == "Tương đương": df = df[df["equivalent"] == "TRUE"]
+    elif fe == "Thay thế":  df = df[df["equivalent"] == "FALSE"]
+    if fk.strip():
+        k = fk.strip().upper()
+        df = df[
+            df["SubjectCode"].str.upper().str.contains(k, na=False) |
+            df["Replacecode"].str.upper().str.contains(k, na=False)
+        ]
+
+    st.markdown(f'<p style="color:{T["muted"]};font-size:12px;margin-bottom:8px">Hiển thị <b style="color:{T["text"]}">{len(df)}</b> / {len(fd)} bản ghi</p>', unsafe_allow_html=True)
+    st.dataframe(df, use_container_width=True, height=380)
+
+    divider()
+
+    # ── 04 Save ───────────────────────────────────────────────────────────────
+    step_label("04", "Lưu dữ liệu", "Tải về máy hoặc đồng bộ lên GitHub")
+
+    xb = to_excel_bytes(fd)
+    cl, cg, _ = st.columns([1, 1, 2])
+    with cl:
         st.download_button(
-            "⬇️ Tải DB đã cập nhật (.xlsx)", data=buf.getvalue(),
-            file_name="Database_Tong_Hop_da_cap_nhat.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            "⬇  Tải về máy (.xlsx)", data=xb,
+            file_name="Database_Tong_Hop.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+    with cg:
+        if st.button("☁  Commit lên GitHub", type="primary", use_container_width=True):
+            if not github_token:
+                st.error("Chưa cấu hình GitHub Token")
+            else:
+                with st.spinner("Đang commit..."):
+                    ok, msg = commit_to_github(github_token, github_repo, xb, qd, sha=sha)
+                if ok:
+                    st.success(f"✓ Commit thành công — QĐ {qd}")
+                    _, new_sha = fetch_db_from_github(github_token, github_repo)
+                    st.session_state["github_sha"] = new_sha
+                else:
+                    st.error(f"Lỗi: {msg}")
 
-        if all_skipped:
-            with st.expander(f"Các dòng bị bỏ qua khi đọc PDF ({len(all_skipped)})"):
-                st.dataframe(pd.DataFrame(all_skipped), use_container_width=True,
-                             hide_index=True)
+    st.markdown(f'<div style="text-align:center;padding:32px 0 8px"><span style="color:{T["muted"]};font-size:12px">© 2026 YenLT31 — FPT Education QA Department</span></div>', unsafe_allow_html=True)
