@@ -326,8 +326,9 @@ step_label("01", "Tải lên file", "Upload PDF Quyết định và database hi�
 col1, col2 = st.columns(2, gap="large")
 with col1:
     st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;font-family:\'Plus Jakarta Sans\',sans-serif">📄 File PDF Quyết định</p>', unsafe_allow_html=True)
-    uploaded_pdf  = st.file_uploader("PDF Quyết định", type=["pdf"], key="pdf_upload")
-    so_qd_input   = st.text_input("Số Quyết định", placeholder="Tự detect từ tên file nếu để trống")
+    uploaded_pdfs = st.file_uploader(
+        "PDF Quyết định", type=["pdf"], accept_multiple_files=True, key="pdf_upload"
+    )
 
 with col2:
     st.markdown(f'<p style="font-size:11px;font-weight:700;color:{T["muted"]};text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px;font-family:\'Plus Jakarta Sans\',sans-serif">📊 Database hiện có (tùy chọn)</p>', unsafe_allow_html=True)
@@ -337,12 +338,13 @@ with col2:
         txt = "● Tự fetch từ GitHub" if github_token else "⚠ Sẽ tạo database mới"
         st.markdown(f'<p style="color:{clr};font-size:13px;font-weight:500;margin-top:6px;font-family:\'Plus Jakarta Sans\',sans-serif">{txt}</p>', unsafe_allow_html=True)
 
-if debug_mode and uploaded_pdf:
-    b = uploaded_pdf.read(); uploaded_pdf.seek(0)
-    rows = read_raw_rows(b)
-    with st.expander(f"🔍 Raw pdfplumber — {len(rows)} rows"):
-        for r in rows:
-            st.code(f"T{r['page']} R{r['row']}: {r['cells']}", language=None)
+if debug_mode and uploaded_pdfs:
+    for pf in uploaded_pdfs:
+        b = pf.read(); pf.seek(0)
+        rows = read_raw_rows(b)
+        with st.expander(f"🔍 Raw pdfplumber — {pf.name} — {len(rows)} rows"):
+            for r in rows:
+                st.code(f"T{r['page']} R{r['row']}: {r['cells']}", language=None)
 
 divider()
 
@@ -350,19 +352,31 @@ divider()
 step_label("02", "Xử lý dữ liệu", "Trích xuất và merge với database hiện có")
 
 btn_process = st.button(
-    "▶  Bắt đầu xử lý" if uploaded_pdf else "⬆  Upload PDF trước",
-    type="primary", disabled=not uploaded_pdf
+    "▶  Bắt đầu xử lý" if uploaded_pdfs else "⬆  Upload PDF trước",
+    type="primary", disabled=not uploaded_pdfs
 )
 
 if btn_process:
     with st.spinner("Đang xử lý..."):
-        so_qd = so_qd_input.strip()
-        if not so_qd:
-            m = re.search(r'\d+', uploaded_pdf.name)
+        all_rows, all_skipped, summaries = [], [], []
+        for pf in uploaded_pdfs:
+            m = re.search(r'\d+', pf.name)
             so_qd = m.group() if m else "Unknown"
+            pdf_bytes = pf.read()
+            pf.seek(0)
+            rows, skipped = extract_from_pdf(pdf_bytes, so_qd=so_qd)
+            all_rows.extend(rows)
+            all_skipped.extend(skipped)
+            summaries.append({
+                "File": pf.name,
+                "Số QĐ": so_qd,
+                "Ngày hiệu lực": rows[0]["effective_date"] if rows else "?",
+                "Dòng trích": len(rows),
+                "Bỏ qua": len(skipped),
+            })
 
-        pdf_bytes          = uploaded_pdf.read()
-        new_rows, skipped  = extract_from_pdf(pdf_bytes, so_qd=so_qd)
+        new_rows, skipped = all_rows, all_skipped
+        so_qd_label = ", ".join(s["Số QĐ"] for s in summaries)
         existing_df, github_sha = None, None
 
         if uploaded_excel:
@@ -381,9 +395,11 @@ if btn_process:
         st.session_state.update(dict(
             final_df=final_df, existing_df=existing_df,
             new_rows=new_rows, skipped=skipped,
-            so_qd=so_qd, github_sha=github_sha
+            summaries=summaries,
+            so_qd=so_qd_label, github_sha=github_sha
         ))
-        st.success(f"✓ Hoàn tất — trích xuất **{len(new_rows)} dòng** từ QĐ {so_qd}")
+        st.success(f"✓ Hoàn tất — trích xuất **{len(new_rows)} dòng** từ **{len(uploaded_pdfs)} QĐ**")
+        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
         if skipped:
             with st.expander(f"⚠  {len(skipped)} dòng bị bỏ qua"):
                 st.dataframe(pd.DataFrame(skipped), use_container_width=True)
@@ -395,14 +411,24 @@ if "final_df" in st.session_state:
     nr  = st.session_state["new_rows"]
     qd  = st.session_state["so_qd"]
     sha = st.session_state["github_sha"]
+    summaries = st.session_state.get("summaries", [])
 
     divider()
     step_label("03", "Kết quả", f"QĐ {qd} — tổng {len(fd)} bản ghi")
 
-    old_pairs = set(zip(ed["SubjectCode"], ed["Replacecode"])) if ed is not None else set()
+    if summaries:
+        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
+
+    if ed is not None and all(c in ed.columns for c in ["SubjectCode", "Replacecode", "no"]):
+        old_members = set(zip(ed["SubjectCode"], ed["Replacecode"], ed["no"].astype(str)))
+    else:
+        old_members = set()
     n_app = int((fd["replace_status"] == "applied").sum())
     n_exp = int((fd["replace_status"] == "expired").sum())
-    n_new = sum(1 for r in nr if (r["SubjectCode"], r["Replacecode"]) not in old_pairs)
+    n_new = sum(
+        1 for r in nr
+        if (r["SubjectCode"], r["Replacecode"], str(r.get("no", ""))) not in old_members
+    )
 
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Tổng bản ghi",  len(fd))
