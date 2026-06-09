@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import io
 import os
+import unicodedata
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -17,6 +18,19 @@ def is_valid_subject_code(s):
     return bool(re.match(r'^[A-Za-z]{2,6}\d{2,4}[a-zA-Z]{0,2}$', s))
 
 
+def _is_code_or_combo(s):
+    """
+    Hop le neu la 1 ma don (IOT102) HOAC 1 to hop 'A+B[+...]' ma moi phan
+    deu la ma hop le (vd 'MAD111+MAD121', 'MAD101+AIH301m').
+    Dung de KHONG bo qua cac o to hop, va giu nguyen ca cum (khong tach).
+    """
+    s = s.strip()
+    if is_valid_subject_code(s):
+        return True
+    parts = [p.strip() for p in s.split('+')]
+    return len(parts) >= 2 and all(is_valid_subject_code(p) for p in parts)
+
+
 def _normalize(s):
     """
     Chuan hoa chuoi: lower + thay MOI loai khoang trang (xuong dong, tab,
@@ -29,27 +43,32 @@ def _normalize(s):
     return re.sub(r'\s+', ' ', str(s).lower()).strip()
 
 
-def _extract_effective_date(pdf):
+def _extract_effective_date(pdf, so_qd=None):
     """
     Lay NGAY SOAN THAO VAN BAN (= ngay hieu luc) tu noi dung PDF.
 
-    Trong van ban QD cua DHFPT, ngay nay nam o header trang dau,
-    mau: "Ha Noi, ngay 16 thang 12 nam 2025"
-    (va lap lai o header moi phu luc).
+    Truong hop thuong: "Ha Noi, ngay 16 thang 12 nam 2025".
 
-    Tra ve chuoi "DD/MM/YYYY", vd "16/12/2025". Neu khong tim thay -> "".
-    Chi quet vai trang dau cho nhanh, lay lan khop dau tien.
+    Truong hop mau ky so co PLACEHOLDER: cong cu ky CHEN cac chu so XEN KE
+    vao placeholder, vd "ngay k0e3yd thang k5eymnam 2024" (k0e3yd = keyd + "03",
+    k5eym = keym + "5"). => Lay token ngay/thang roi RUT CHU SO ra khoi token.
+    Cach nay dung cho ca file thuong lan file placeholder.
+
+    Tra ve "DD/MM/YYYY". Neu khong tim thay -> "".
     """
     pat = re.compile(
-        r'ng[aà]y\s+(\d{1,2})\s+th[aá]ng\s+(\d{1,2})\s+n[aă]m\s+(\d{4})',
+        r'ng[aà]y\s+(\S+?)\s+th[aá]ng\s+(\S+?)\s*n[aă]m\s+(\d{4})',
         re.IGNORECASE
     )
     for page in pdf.pages[:3]:
-        txt = page.extract_text() or ""
+        txt = unicodedata.normalize('NFC', page.extract_text() or "")
         m = pat.search(txt)
         if m:
-            d, mth, y = m.groups()
-            return f"{int(d):02d}/{int(mth):02d}/{y}"
+            d   = re.sub(r'\D', '', m.group(1))   # rut chu so tu token ngay
+            mth = re.sub(r'\D', '', m.group(2))   # rut chu so tu token thang
+            y   = m.group(3)
+            if d and mth and 1 <= int(d) <= 31 and 1 <= int(mth) <= 12:
+                return f"{int(d):02d}/{int(mth):02d}/{y}"
     return ""
 
 
@@ -127,8 +146,9 @@ def _clean_code_cell(v):
     if v is None:
         return ""
     s = str(v)
-    # "hoặc"/"và" (kem khoang trang/xuong dong xung quanh) -> '/'
-    s = re.sub(r'[\s\n]*\b(hoặc|và)\b[\s\n]*', '/', s, flags=re.IGNORECASE)
+    # "hoặc"/"và" -> '/'. Cho phep ma sau DINH LIEN (vd "hoặcCPV301"):
+    # bat dau bang word-boundary truoc, theo sau la 1 chu/so (lookahead) thay vi \b sau.
+    s = re.sub(r'[\s\n]*\b(hoặc|hoăc|và)\s*(?=[A-Za-z0-9])', '/', s, flags=re.IGNORECASE)
 
     frags = [f.strip() for f in s.split('\n') if f.strip()]
     if not frags:
@@ -143,7 +163,18 @@ def _clean_code_cell(v):
         else:
             result = result + f                       # noi lien (han token bi cat)
 
-    return re.sub(r'[ \t]{2,}', ' ', result).strip()
+    result = re.sub(r'[ \t]{2,}', ' ', result).strip()
+    # Tho gon khoang trang quanh '+' (giu to hop dang "A+B")
+    result = re.sub(r'\s*\+\s*', '+', result)
+
+    # Tach ma ngan nhau bang DAU CACH: neu tat ca token deu la ma hop le -> noi '/'
+    # (vd "CHI111 CHI121" -> "CHI111/CHI121"). Cell mo ta (co tu thuong/khong phai
+    # ma) se khong thoa -> giu nguyen.
+    parts = result.split(' ')
+    if len(parts) >= 2 and all(is_valid_subject_code(p) for p in parts):
+        result = '/'.join(parts)
+
+    return result
 
 
 def extract_from_pdf(pdf_source, so_qd="Unknown"):
@@ -174,7 +205,7 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
     with pdfplumber.open(open_target) as pdf:
         # ── Lay ngay hieu luc (1 lan cho ca van ban) ────────────────────
-        effective_date = _extract_effective_date(pdf)
+        effective_date = _extract_effective_date(pdf, so_qd)
 
         for page_num, page in enumerate(pdf.pages, 1):
             raw_table = page.extract_table({
@@ -186,6 +217,12 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
             # ── BUOC 1: Gop dong tiep noi truoc khi parse ────────────────
             table = _merge_continuation_rows(raw_table)
+
+            # Chuan hoa Unicode NFC: PDF co the ma hoa tieng Viet kieu to hop
+            # (vd "ặ" = ă + dau nang roi U+0323). NFC dua ve dang dung san de
+            # moi phep so chuoi tieng Viet ("hoặc", "tương đương"...) khop dung.
+            table = [[unicodedata.normalize('NFC', str(c)) if c is not None else c
+                      for c in row] for row in table]
 
             for row in table:
                 if not row or len(row) < 5:
@@ -229,9 +266,9 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                 if len(row) > ht_idx + 2 and row[ht_idx + 2]:
                     chu_y = str(row[ht_idx + 2]).strip().replace('\n', ' ')
 
-                # Bo qua neu Replacecode la mo ta van ban
+                # Bo qua neu Replacecode la mo ta van ban (chap nhan ca to hop A+B)
                 first_code = replace_raw.split(',')[0].split('/')[0].strip()
-                if not replace_raw or not is_valid_subject_code(first_code):
+                if not replace_raw or not _is_code_or_combo(first_code):
                     if subject_raw and replace_raw:
                         skipped_rows.append({
                             "page"           : page_num,
@@ -259,10 +296,11 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
                         equivalent = "FALSE"   # khong xac dinh duoc -> mac dinh FALSE
                 note = f"{so_qd} {chu_y}".strip()
 
-                # Xu ly nhieu SubjectCode trong 1 o
+                # Xu ly nhieu SubjectCode trong 1 o (tach , / xuong dong,
+                # NHUNG khong tach '+': giu nguyen ca to hop "A+B")
                 for sc in re.split(r'[,/\n]+', subject_raw):
                     sc = sc.strip()
-                    if sc and is_valid_subject_code(sc):
+                    if sc and _is_code_or_combo(sc):
                         data_rows.append({
                             "SubjectCode"   : sc,
                             "Replacecode"   : replace_raw,
@@ -406,38 +444,95 @@ def merge_database(existing_df, new_rows):
     return result[COLS].reset_index(drop=True)
 
 
-# ── Chay doc lap ──────────────────────────────────────────────────────────────
+# ── Giao dien Streamlit ───────────────────────────────────────────────────────
+# Tren Streamlit Cloud, page chay nhu __main__. KHONG doc thu muc input/ tren dia
+# (gay FileNotFoundError); thay vao do nhan file qua st.file_uploader va xu ly
+# trong bo nho. Cac ham loi o tren van import duoc ma khong can streamlit.
 if __name__ == "__main__":
-    INPUT_DIR   = "input/"
-    OUTPUT_FILE = "output/Database_Tong_Hop.xlsx"
+    import streamlit as st
 
-    all_new_data = []
-    all_skipped  = []
+    st.set_page_config(page_title="Replacecode Manager", page_icon="📄", layout="wide")
+    st.title("📄 Replacecode Manager")
+    st.caption("Gộp các Quyết định (PDF) môn tương đương/thay thế vào DB, "
+               "xác định mỗi dòng thuộc QĐ nào và ngày hiệu lực.")
 
-    pdf_files = [f for f in os.listdir(INPUT_DIR) if f.endswith(".pdf")]
+    col1, col2 = st.columns(2)
+    with col1:
+        db_file = st.file_uploader(
+            "DB Excel hiện có (.xlsx) — để trống nếu tạo mới", type=["xlsx"])
+    with col2:
+        pdf_files = st.file_uploader(
+            "Các file PDF Quyết định (chọn nhiều cùng lúc)",
+            type=["pdf"], accept_multiple_files=True)
 
-    if not pdf_files:
-        print("Khong tim thay file PDF nao trong input/")
-    else:
-        for file in pdf_files:
-            path = os.path.join(INPUT_DIR, file)
-            print(f"\nDang xu ly: {file}")
-            rows, skipped = extract_from_pdf(path)
-            all_new_data.extend(rows)
-            all_skipped.extend(skipped)
-            ngay = rows[0]["effective_date"] if rows else "?"
-            print(f"   Trich xuat: {len(rows)} dong | Ngay hieu luc: {ngay}")
-            if skipped:
-                print(f"   Bo qua   : {len(skipped)} dong")
+    st.info("Mẹo: nạp **tất cả** các QĐ trong một lần để cột `review` "
+            "(đánh dấu dòng không khớp QĐ nào) phản ánh đúng.")
 
-    if all_new_data:
-        existing = pd.read_excel(OUTPUT_FILE) if os.path.exists(OUTPUT_FILE) else None
-        final    = merge_database(existing, all_new_data)
-        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-        final.to_excel(OUTPUT_FILE, index=False)
-        print(f"\nDa luu {len(final)} dong vao {OUTPUT_FILE}")
+    run = st.button("🔄 Gộp dữ liệu", type="primary",
+                    disabled=not pdf_files)
 
-    if all_skipped:
-        print("\nCac dong bi bo qua:")
-        for s in all_skipped:
-            print(f"   Trang {s['page']}: {s['SubjectCode']} -> \"{s['Replacecode_raw']}\"")
+    if run:
+        # 1) Doc DB hien co (neu co)
+        existing = None
+        if db_file is not None:
+            try:
+                existing = pd.read_excel(db_file)
+            except Exception as e:
+                st.error(f"Không đọc được file Excel: {e}")
+                st.stop()
+
+        # 2) Trich xuat tung PDF (so QD lay tu ten file)
+        all_rows, all_skipped, summaries = [], [], []
+        with st.spinner("Đang đọc các file PDF..."):
+            for pf in pdf_files:
+                mt = re.search(r'\d+', pf.name)
+                so_qd = mt.group() if mt else "Unknown"
+                try:
+                    rows, skipped = extract_from_pdf(pf.getvalue(), so_qd=so_qd)
+                except Exception as e:
+                    st.error(f"Lỗi đọc {pf.name}: {e}")
+                    continue
+                all_rows.extend(rows)
+                all_skipped.extend(skipped)
+                ngay = rows[0]["effective_date"] if rows else "?"
+                summaries.append({
+                    "File": pf.name, "Số QĐ": so_qd, "Ngày hiệu lực": ngay,
+                    "Dòng trích": len(rows), "Bỏ qua": len(skipped),
+                })
+
+        if not all_rows:
+            st.warning("Không trích được dòng dữ liệu nào từ các PDF đã nạp.")
+            st.stop()
+
+        # 3) Gop
+        final = merge_database(existing, all_rows)
+
+        before = 0 if existing is None else len(existing)
+        st.success(f"Xong! DB: {before:,} → {len(final):,} dòng "
+                   f"(thêm {len(final) - before:,}).")
+
+        st.subheader("Tóm tắt từng QĐ")
+        st.dataframe(pd.DataFrame(summaries), use_container_width=True, hide_index=True)
+
+        if "review" in final.columns:
+            flagged = int((final["review"] == "khong khop QD da nap").sum())
+            if flagged:
+                st.warning(f"⚠️ {flagged:,} dòng được đánh dấu **review** "
+                           f"(bản ghi không khớp QĐ nào đã nạp). Nạp thêm QĐ để giảm con số này.")
+
+        st.subheader("Xem trước (50 dòng đầu)")
+        st.dataframe(final.head(50), use_container_width=True, hide_index=True)
+
+        # 4) Tai ve
+        buf = io.BytesIO()
+        final.to_excel(buf, index=False)
+        buf.seek(0)
+        st.download_button(
+            "⬇️ Tải DB đã cập nhật (.xlsx)", data=buf.getvalue(),
+            file_name="Database_Tong_Hop_da_cap_nhat.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        if all_skipped:
+            with st.expander(f"Các dòng bị bỏ qua khi đọc PDF ({len(all_skipped)})"):
+                st.dataframe(pd.DataFrame(all_skipped), use_container_width=True,
+                             hide_index=True)
