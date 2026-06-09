@@ -65,6 +65,24 @@ def _normalize(s):
     return re.sub(r'\s+', ' ', str(s).lower()).strip()
 
 
+def _cell_has_word(v, word_re):
+    if v is None:
+        return False
+    return bool(re.search(r'\b' + word_re + r'\b', str(v), flags=re.IGNORECASE))
+
+
+def _restore_and_separator(cleaned, original):
+    """
+    Neu o goc co chu "va" thi day la nhom GOP, khong phai nhom CHON.
+    Lop bao ve nay giu cac case pdfplumber/encoding la lam "va" bi thanh "/".
+    """
+    if not cleaned:
+        return cleaned
+    if _cell_has_word(original, _AND_WORD_RE) and not _cell_has_word(original, _OR_WORD_RE):
+        return re.sub(r'\s*/\s*', ' và ', cleaned).strip()
+    return cleaned
+
+
 def _extract_effective_date(pdf, so_qd=None):
     """
     Lay NGAY SOAN THAO VAN BAN (= ngay hieu luc) tu noi dung PDF.
@@ -229,6 +247,8 @@ def extract_from_pdf(pdf_source, so_qd="Unknown"):
 
                 subject_raw = _clean_code_cell(row[1]) if row[1] else ""
                 replace_raw = _clean_code_cell(row[2]) if len(row) > 2 and row[2] else ""
+                subject_raw = _restore_and_separator(subject_raw, row[1])
+                replace_raw = _restore_and_separator(replace_raw, row[2] if len(row) > 2 else "")
 
                 if not subject_raw:
                     continue
