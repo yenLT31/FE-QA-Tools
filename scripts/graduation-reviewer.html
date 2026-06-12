@@ -467,8 +467,8 @@ t0=performance.now();setPS(5,'running');await delay(10);const ckr=doCheckReplace
 setPS(5,'done',`${ckr.length} môn — ${formatMs(perfStats.s5)}`);
 t0=performance.now();setPS(6,'running');await delay(10);const ckg=doCheckGPA(markDT,markFAP);perfStats.s6=performance.now()-t0;
 setPS(6,'done',`${ckg.length} SV — ${formatMs(perfStats.s6)}`);
-t0=performance.now();setPS(7,'running');await delay(10);const sum=genSummary(ckm,ckr,ckg,markDT,markFAP);perfStats.s7=performance.now()-t0;setPS(7,'done');
-RESULT={checkMark:ckm,checkReplace:ckr,checkGPA:ckg,summary:sum,markDT,markFAP};
+t0=performance.now();setPS(7,'running');await delay(10);const uncheckedDT=doUncheckedDT(ckm,markDT,markFAP);const sum=genSummary(ckm,ckr,ckg,markDT,markFAP,uncheckedDT);perfStats.s7=performance.now()-t0;setPS(7,'done');
+RESULT={checkMark:ckm,checkReplace:ckr,checkGPA:ckg,uncheckedDT,summary:sum,markDT,markFAP};
 const tt=Object.values(perfStats).reduce((a,b)=>a+b,0);
 document.getElementById('perfInfo').innerHTML=`<p class="text-[10px] font-bold text-on-surface-variant/40 uppercase tracking-widest">Thời gian thực thi: ${formatMs(tt)} · Mark_FAP: ${formatMs(perfStats.s3)} · Check: ${formatMs(perfStats.s4)}</p>`;
 await delay(400);showResults();
@@ -616,6 +616,11 @@ function getCurrMap(){const rows=readAllSheets(FILES.currstudent);if(!rows.lengt
 function getCurrSubs(){const rows=readAllSheets(FILES.currsubject);if(!rows.length)throw new Error('CurriculumSubject trống');const h=Object.keys(rows[0]);const cc=findCol(h,['CurriculumCode','Curriculum Code','MaKhung','curriculumcode']);const sc=findCol(h,['SubjectCode','Subject Code','MaMon','subjectcode']);const cr=findCol(h,['Credits','SoTC','credits','Credit']);if(!cc||!sc)throw new Error('CurriculumSubject thiếu cột');const m={};rows.forEach(r=>{const curr=cleanCode(r[cc]),sub=cleanCode(r[sc]);if(curr&&sub){if(!m[curr])m[curr]=[];m[curr].push({SubjectCode:sub,Credits:cr?cleanNum(r[cr]):null});}});return m;}
 function getRepMap(){const rows=readAllSheets(FILES.replacecode);if(!rows.length)return{};const h=Object.keys(rows[0]);const sc=findCol(h,['SubjectCode','Subject Code','subjectcode']);const rc=findCol(h,['replacecode','ReplaceCode','Replace Code']);const eq=findCol(h,['equivalent','Equivalent']);const nt=findCol(h,['note','Note','GhiChu']);if(!sc||!rc)throw new Error('ReplaceCode thiếu cột');const m={};rows.forEach(r=>{const sub=cleanCode(r[sc]),rep=cleanCode(r[rc]);if(sub&&rep){if(!m[sub])m[sub]=[];m[sub].push({SubjectCode:sub,replacecode:rep,equivalent:eq?cleanStr(r[eq]):'',note:nt?cleanStr(r[nt]):''});}});return m;}
 
+function getRepMapByCurriculum(){const rows=readAllSheets(FILES.replacecode);if(!rows.length)return{};const h=Object.keys(rows[0]);const sc=findCol(h,['SubjectCode','Subject Code','subjectcode']);const rc=findCol(h,['replacecode','ReplaceCode','Replace Code']);const cc=findCol(h,['CurriculumCode','Curriculum Code','MaKhung','curriculumcode']);const eq=findCol(h,['equivalent','Equivalent']);const nt=findCol(h,['note','Note','GhiChu']);if(!sc||!rc)throw new Error('ReplaceCode missing required columns');const m={};rows.forEach(r=>{const sub=cleanCode(r[sc]),rep=cleanCode(r[rc]);if(sub&&rep){if(!m[sub])m[sub]=[];m[sub].push({SubjectCode:sub,replacecode:rep,CurriculumCode:cc?cleanStr(r[cc]):'',equivalent:eq?cleanStr(r[eq]):'',note:nt?cleanStr(r[nt]):''});}});return m;}
+function parseCurriculumCodes(v){const s=cleanStr(v);if(!s)return[];return s.split(/[\/,;|]+|\bor\b/i).map(x=>cleanCode(x).toUpperCase()).filter(Boolean);}
+function repMatchesCurriculum(rep,curriculumCode){const codes=parseCurriculumCodes(rep.CurriculumCode);if(!codes.length)return true;const cc=cleanCode(curriculumCode).toUpperCase();return !!cc&&codes.some(code=>cc===code||cc.startsWith(code+'_')||cc.startsWith(code+'-'));}
+function getApplicableReps(repMap,subjectCode,curriculumCode){const reps=(repMap[subjectCode]||[]).filter(r=>repMatchesCurriculum(r,curriculumCode));const specific=reps.filter(r=>parseCurriculumCodes(r.CurriculumCode).length>0);const common=reps.filter(r=>parseCurriculumCodes(r.CurriculumCode).length===0);return specific.concat(common);}
+
 // ---- Check Mark ----
 function doCheckMark(markDT,markFAP){
 const cm=getCurrMap(),cs=getCurrSubs();
@@ -666,8 +671,42 @@ if(vovSubs.length){
     else if(!fapPassed)check=`Not ok — Thiếu ${grp}*`;
     else check='OK';
     res.push({Stt:stt,RollNumber:roll,FullName:name,CurriculumCode:cc,SubjectCode:grp+'*',Mark_Dt:gdtcMark,Mark_Fap:mFap,Status:status,Check:check});
-  });}
+});}
 });return res;}
+
+// ---- DT marks not checked against FAP ----
+function doUncheckedDT(ckm,markDT,markFAP){
+const checked=new Set();
+const checkedByRoll={};
+ckm.forEach(r=>{
+  checked.add(r.RollNumber+'|'+r.SubjectCode);
+  if(!checkedByRoll[r.RollNumber])checkedByRoll[r.RollNumber]=[];
+  checkedByRoll[r.RollNumber].push(r.SubjectCode);
+});
+const fL={};markFAP.forEach(r=>{fL[r.RollNumber+'|'+r.SubjectCode]=r;});
+const rows=[];let stt=0;
+markDT.marks.forEach(r=>{
+  const key=r.RollNumber+'|'+r.SubjectCode;
+  if(checked.has(key))return;
+  const sc=String(r.SubjectCode||'').toUpperCase();
+  const rollChecks=checkedByRoll[r.RollNumber]||[];
+  if(sc==='OJT'&&rollChecks.some(c=>String(c).toUpperCase().startsWith('OJ')))return;
+  if(sc==='GDTC'&&rollChecks.some(c=>String(c).toUpperCase().startsWith('VOV')&&String(c).endsWith('*')))return;
+  const f=fL[key];
+  rows.push({
+    Stt:++stt,
+    RollNumber:r.RollNumber,
+    FullName:r.FullName,
+    SubjectCode:r.SubjectCode,
+    Mark_Dt:r.AverageMark,
+    Credits_Dt:r.Credits??'',
+    Mark_Fap:f?(f.AverageMarkNum!=null?roundTo(f.AverageMarkNum,1):f.AverageMark):'',
+    Status_Fap:f?f.Status:'',
+    Note:f?'Co FAP nhung khong nam trong Check Mark':'Khong nam trong Check Mark'
+  });
+});
+return rows;
+}
 
 // ---- Check Replace ----
 // Helper: detect combo type and parse replacecode
@@ -692,17 +731,17 @@ function parseReplaceCode(code){
 }
 
 function doCheckReplace(ckm,markDT,markFAP){
-const rm=getRepMap();const fL={};markFAP.forEach(r=>{fL[r.RollNumber+'|'+r.SubjectCode]=r;});const dL={};markDT.marks.forEach(r=>{dL[r.RollNumber+'|'+r.SubjectCode]=r;});
+const rm=getRepMapByCurriculum();const fL={};markFAP.forEach(r=>{fL[r.RollNumber+'|'+r.SubjectCode]=r;});const dL={};markDT.marks.forEach(r=>{dL[r.RollNumber+'|'+r.SubjectCode]=r;});
 const errs=ckm.filter(r=>r.Check==='Lệch điểm'||r.Check==='Not ok'||r.Check==='Thiếu dữ liệu'||r.Check==='Lỗi kỹ thuật');const res=[];let stt=0;
 
 errs.forEach(item=>{const sc=item.SubjectCode,roll=item.RollNumber;let allRC=[];
 // Collect all possible replacements
-(rm[sc]||[]).forEach(r=>{
+getApplicableReps(rm,sc,item.CurriculumCode).forEach(r=>{
   const parsed=parseReplaceCode(r.replacecode);
   allRC.push({code:r.replacecode,note:r.note,parsed});
 });
 // Also check reverse (equivalent=TRUE)
-Object.entries(rm).forEach(([orig,rs])=>{rs.forEach(r=>{if(r.replacecode===sc&&r.equivalent&&r.equivalent.toUpperCase()==='TRUE')allRC.push({code:orig,note:r.note,parsed:{type:'single',codes:[cleanCode(orig)]}});});});
+Object.entries(rm).forEach(([orig,rs])=>{rs.forEach(r=>{if(repMatchesCurriculum(r,item.CurriculumCode)&&r.replacecode===sc&&r.equivalent&&r.equivalent.toUpperCase()==='TRUE')allRC.push({code:orig,note:r.note,parsed:{type:'single',codes:[cleanCode(orig)]}});});});
 
 if(!allRC.length){stt++;res.push({Stt:stt,RollNumber:roll,FullName:item.FullName,CurriculumCode:item.CurriculumCode,SubjectCode:sc,Replacecode:'',Note:'',Mark_Dt:item.Mark_Dt,Mark_Fap:'',Status_Fap:'',Check:item.Check});return;}
 
@@ -828,7 +867,7 @@ if(bestOption.type==='and'){
 
 // ---- Check GPA ----
 function doCheckGPA(markDT,markFAP){
-const cm=getCurrMap(),cs=getCurrSubs(),rm=getRepMap();
+const cm=getCurrMap(),cs=getCurrSubs(),rm=getRepMapByCurriculum();
 const fL={};markFAP.forEach(r=>{fL[r.RollNumber+'|'+r.SubjectCode]=r;});
 // Build Can Check lookup
 const dtL={};markDT.marks.forEach(r=>{dtL[r.RollNumber+'|'+r.SubjectCode]=r;});
@@ -968,7 +1007,7 @@ const isFailing=fR&&fR.Status&&FAIL_STATUS.includes(fR.Status.toLowerCase().trim
 
 if(!fR||fR.AverageMarkNum===null||isFailing){
   // Try to find replacement
-  const best=findBestReplacement(rm[sc]||[],usedReplacements);
+  const best=findBestReplacement(getApplicableReps(rm,sc,cc),usedReplacements);
   
   if(best){
     if(best.isDuplicate){
@@ -1010,7 +1049,7 @@ if(!fR||fR.AverageMarkNum===null||isFailing){
     if(foundReverse)return;
     rs.forEach(r=>{
       if(foundReverse)return;
-      if(r.replacecode===sc&&r.equivalent&&r.equivalent.toUpperCase()==='TRUE'){
+      if(repMatchesCurriculum(r,cc)&&r.replacecode===sc&&r.equivalent&&r.equivalent.toUpperCase()==='TRUE'){
         const ar=fL[roll+'|'+orig];
         if(ar&&ar.AverageMarkNum!==null&&!FAIL_STATUS.includes((ar.Status||'').toLowerCase().trim())){
           if(ar.Status&&ar.Status.toLowerCase().trim()==='is exempt'){foundReverse=true;return;}
@@ -1061,7 +1100,7 @@ res.push({Stt:stt,RollNumber:roll,FullName:name,GPA_Dt:gpaDt??'',GPA_Dt_Calc:gpa
 });return res;}
 
 // ---- Summary ----
-function genSummary(ckm,ckr,ckg,markDT,markFAP){
+function genSummary(ckm,ckr,ckg,markDT,markFAP,uncheckedDT){
 const total=markDT.students.length,notOk=ckm.filter(r=>r.Check!=='OK');
 const resolved=new Set();ckr.forEach(r=>{if(r.Check==='OK')resolved.add(r.RollNumber+'|'+r.SubjectCode);});
 const stillNotOkAfterReplace=ckr.filter(r=>r.Check!=='OK').length;
@@ -1105,7 +1144,8 @@ document.getElementById('summaryCards').innerHTML=`
 <div class="bg-white p-5 rounded-3xl border border-surface-variant card-shadow"><span class="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest block mb-2">VOV Pass</span><span class="text-3xl font-black ${s.vovPassCount===s.totalStudents?'text-green-600':'text-error'}">${s.vovPassCount}/${s.totalStudents}</span></div>
 <div class="bg-white p-5 rounded-3xl border border-surface-variant card-shadow"><span class="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest block mb-2">OJT Pass</span><span class="text-3xl font-black ${s.ojtPassCount===s.totalStudents?'text-green-600':'text-error'}">${s.ojtPassCount}/${s.totalStudents}</span></div>
 <div class="bg-white p-5 rounded-3xl border border-surface-variant card-shadow"><span class="text-[9px] font-bold text-on-surface-variant uppercase tracking-widest block mb-2">GDQP Pass</span><span class="text-3xl font-black ${s.gdqpPassCount===s.totalStudents?'text-green-600':'text-error'}">${s.gdqpPassCount}/${s.totalStudents}</span></div>`;
-const tabs=[{id:'checkmark',l:'Check Mark',icon:'fact_check',n:RESULT.checkMark.length},{id:'checkreplace',l:'Check Replace',icon:'swap_horiz',n:RESULT.checkReplace.length},{id:'checkgpa',l:'Check GPA',icon:'calculate',n:RESULT.checkGPA.length},{id:'tracuu',l:'Tra cứu SV',icon:'person_search',n:null},{id:'summary',l:'Summary',icon:'summarize',n:null}];
+document.getElementById('summaryCards').insertAdjacentHTML('beforeend',`<div class="bg-white p-5 rounded-3xl border-l-4 border-l-blue-500 border border-surface-variant card-shadow"><span class="text-[9px] font-bold text-blue-600 uppercase tracking-widest block mb-2">DT chua check</span><span class="text-3xl font-black text-blue-600">${RESULT.uncheckedDT.length.toLocaleString()}</span></div>`);
+const tabs=[{id:'checkmark',l:'Check Mark',icon:'fact_check',n:RESULT.checkMark.length},{id:'checkreplace',l:'Check Replace',icon:'swap_horiz',n:RESULT.checkReplace.length},{id:'checkgpa',l:'Check GPA',icon:'calculate',n:RESULT.checkGPA.length},{id:'uncheckeddt',l:'DT chua check',icon:'rule',n:RESULT.uncheckedDT.length},{id:'tracuu',l:'Tra cứu SV',icon:'person_search',n:null},{id:'summary',l:'Summary',icon:'summarize',n:null}];
 document.getElementById('resultTabs').innerHTML=tabs.map((t,i)=>`<button data-tab="${t.id}" class="px-5 py-5 text-xs font-black uppercase tracking-widest flex items-center gap-2 whitespace-nowrap transition-all ${i===0?'text-primary border-b-2 border-primary':'text-on-surface-variant hover:text-primary border-b-2 border-transparent'}" onclick="switchTab('${t.id}',this)"><span class="material-symbols-outlined text-base">${t.icon}</span>${t.l}${t.n!=null?' ('+t.n.toLocaleString()+')':''}</button>`).join('');
 renderTab('checkmark');}
 
@@ -1129,6 +1169,10 @@ if(id==='checkmark'){
   const d=RESULT.checkGPA,e=d.filter(r=>!r.Check.startsWith('OK')&&r.Check!=='Thiếu dữ liệu');
   el.innerHTML=infoBox(e.length>0,`Tổng: ${d.length.toLocaleString()} | OK: ${(d.length-e.length).toLocaleString()} | Lệch: ${e.length.toLocaleString()}`)+`<div id="dt_gpa"></div>`;
   if(DT.dt_gpa){DT.dt_gpa.render();}else{DT.dt_gpa=new DataTable('dt_gpa',['Stt','RollNumber','FullName','GPA_Dt','GPA_Dt_Calc','GPA_Fap','TC_Dt','TC_Fap','Check'],d);}
+}else if(id==='uncheckeddt'){
+  const d=RESULT.uncheckedDT;
+  el.innerHTML=infoBox(d.length>0,`Tong: ${d.length.toLocaleString()} mon DT chua duoc check khop truc tiep voi FAP`)+`<div id="dt_unchecked_dt"></div>`;
+  if(DT.dt_unchecked_dt){DT.dt_unchecked_dt.render();}else{DT.dt_unchecked_dt=new DataTable('dt_unchecked_dt',['Stt','RollNumber','FullName','SubjectCode','Mark_Dt','Credits_Dt','Mark_Fap','Status_Fap','Note'],d);}
 }else if(id==='tracuu'){
   el.innerHTML=`<div class="p-8 space-y-4 max-w-4xl">
     <div class="space-y-1"><h3 class="text-lg font-black text-on-surface">Tra cứu sinh viên</h3><p class="text-sm text-on-surface-variant">Nhập mã SV hoặc tên để xem toàn bộ điểm ĐT + FAP + kết quả kiểm tra</p></div>
@@ -1150,7 +1194,8 @@ if(id==='checkmark'){
         <tr class="border-b border-surface-variant"><td class="px-6 py-4 text-on-surface-variant font-medium">SV đạt VOV</td><td class="px-6 py-4 font-black text-right ${s.vovPassCount===s.totalStudents?'text-green-600':'text-amber-600'}">${s.vovPassCount} / ${s.totalStudents}</td></tr>
         <tr class="border-b border-surface-variant"><td class="px-6 py-4 text-on-surface-variant font-medium">SV đạt OJT</td><td class="px-6 py-4 font-black text-right ${s.ojtPassCount===s.totalStudents?'text-green-600':'text-amber-600'}">${s.ojtPassCount} / ${s.totalStudents}</td></tr>
         <tr class="border-b border-surface-variant"><td class="px-6 py-4 text-on-surface-variant font-medium">SV đạt GDQP</td><td class="px-6 py-4 font-black text-right ${s.gdqpPassCount===s.totalStudents?'text-green-600':'text-amber-600'}">${s.gdqpPassCount} / ${s.totalStudents}</td></tr>
-        <tr><td class="px-6 py-4 text-on-surface-variant font-medium">SV lệch GPA</td><td class="px-6 py-4 font-black text-right ${s.gpaMismatch?'text-error':'text-green-600'}">${s.gpaMismatch}</td></tr>
+        <tr class="border-b border-surface-variant"><td class="px-6 py-4 text-on-surface-variant font-medium">SV lệch GPA</td><td class="px-6 py-4 font-black text-right ${s.gpaMismatch?'text-error':'text-green-600'}">${s.gpaMismatch}</td></tr>
+        <tr><td class="px-6 py-4 text-on-surface-variant font-medium">Môn ĐT chưa check khớp FAP</td><td class="px-6 py-4 font-black text-right ${RESULT.uncheckedDT.length?'text-blue-600':'text-green-600'}">${RESULT.uncheckedDT.length}</td></tr>
       </tbody></table>
     </div>`;
   if(s.topErrs&&s.topErrs.length){h+=`<div><h4 class="text-xs font-black uppercase tracking-widest text-on-surface-variant mb-3">Top môn lệch nhiều nhất</h4><div class="space-y-2">`;s.topErrs.forEach(e=>{const w=Math.round(e.count/s.topErrs[0].count*100);h+=`<div class="flex items-center gap-3"><span class="text-xs font-black text-primary w-20 shrink-0">${e.code}</span><div class="flex-1 bg-surface-variant rounded-full h-2 overflow-hidden"><div class="bg-error h-full rounded-full" style="width:${w}%"></div></div><span class="text-xs font-bold text-error w-8 text-right">${e.count}</span></div>`;});h+=`</div></div>`;}
@@ -1267,8 +1312,8 @@ function getTS(){const n=new Date();return n.getFullYear()+String(n.getMonth()+1
 function getFullTS(){return new Date().toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
 function downloadResult(){const wb=XLSX.utils.book_new(),ts=getFullTS();
 const addSh=(name,title,data,nc)=>{const hdr=[[title],['Thời gian: '+ts],[]];const ws=XLSX.utils.aoa_to_sheet(hdr);XLSX.utils.sheet_add_json(ws,data,{origin:'A4'});ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:nc-1}},{s:{r:1,c:0},e:{r:1,c:nc-1}}];const cols=[];for(let i=0;i<nc;i++)cols.push({wch:18});ws['!cols']=cols;XLSX.utils.book_append_sheet(wb,ws,name);};
-addSh('Check Mark','BÁO CÁO CHECK MARK',RESULT.checkMark,9);addSh('Check Replace','BÁO CÁO CHECK REPLACE',RESULT.checkReplace,11);addSh('Check GPA','BÁO CÁO CHECK GPA',RESULT.checkGPA,9);
-const s=RESULT.summary,sd=[['TỔNG HỢP KẾT QUẢ RÀ SOÁT'],['Thời gian: '+ts],[],['Nội dung','Giá trị'],['1. SV đã kiểm tra',s.totalStudents],['2. Tổng môn kiểm tra',s.totalSubjectsChecked],['3. Môn lệch/Not ok',s.notOkCount],['4. Còn lệch sau Replace',s.stillNotOkAfterReplace],['5. SV đạt VOV',s.vovPassCount+'/'+s.totalStudents],['6. SV đạt OJT',s.ojtPassCount+'/'+s.totalStudents],['7. SV đạt GDQP',s.gdqpPassCount+'/'+s.totalStudents],['8. SV lệch GPA',s.gpaMismatch],[]];
+addSh('Check Mark','BÁO CÁO CHECK MARK',RESULT.checkMark,9);addSh('Check Replace','BÁO CÁO CHECK REPLACE',RESULT.checkReplace,11);addSh('Check GPA','BÁO CÁO CHECK GPA',RESULT.checkGPA,9);addSh('DT chua check','DT CHUA CHECK KHOP FAP',RESULT.uncheckedDT,9);
+const s=RESULT.summary,sd=[['TỔNG HỢP KẾT QUẢ RÀ SOÁT'],['Thời gian: '+ts],[],['Nội dung','Giá trị'],['1. SV đã kiểm tra',s.totalStudents],['2. Tổng môn kiểm tra',s.totalSubjectsChecked],['3. Môn lệch/Not ok',s.notOkCount],['4. Còn lệch sau Replace',s.stillNotOkAfterReplace],['5. SV đạt VOV',s.vovPassCount+'/'+s.totalStudents],['6. SV đạt OJT',s.ojtPassCount+'/'+s.totalStudents],['7. SV đạt GDQP',s.gdqpPassCount+'/'+s.totalStudents],['8. SV lệch GPA',s.gpaMismatch],['9. Mon DT chua check khop FAP',RESULT.uncheckedDT.length],[]];
 // Top môn lệch
 if(s.topErrs&&s.topErrs.length){sd.push(['TOP MÔN LỆCH NHIỀU NHẤT']);sd.push(['Mã môn','Số lượng']);s.topErrs.forEach(e=>sd.push([e.code,e.count]));sd.push([]);}
 // SV chưa đạt GDQP
