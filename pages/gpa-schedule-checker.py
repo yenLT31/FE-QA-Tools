@@ -226,29 +226,31 @@ with st.sidebar:
     </div>""", unsafe_allow_html=True)
 
 # ============================================================
-#  HEADER
-# ============================================================
-st.markdown(f"""
-<div style="margin-bottom:28px">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
-        <div style="width:44px;height:44px;border-radius:14px;
-                    background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
-                    display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
-        <div>
-            <h1 style="font-size:26px;font-weight:800;color:{T['text']};margin:0;line-height:1.2">
-                GPA Schedule Checker</h1>
-            <p style="font-size:13px;color:{T['muted']};margin:0">
-                Đối sánh lịch kỳ và GPA – kiểm tra GV đủ 30%, phát hiện lớp GPA dưới 3.4, kiểm tra tỷ lệ phản hồi</p>
-        </div>
-    </div>
-</div>""", unsafe_allow_html=True)
-
-# ============================================================
-#  DOWNLOAD BUTTON ON TOP (nếu đã có kết quả)
+#  HEADER + DOWNLOAD (cùng hàng)
 # ============================================================
 if st.session_state.gpa_done:
+    col_header, col_dl1, col_dl2, col_dl3 = st.columns([3, 1.2, 1.2, 0.6])
+else:
+    col_header = st.columns([1])[0]
+
+with col_header:
+    st.markdown(f"""
+    <div style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:14px">
+            <div style="width:44px;height:44px;border-radius:14px;
+                        background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
+                        display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
+            <div>
+                <h1 style="font-size:26px;font-weight:800;color:{T['text']};margin:0;line-height:1.2">
+                    GPA Schedule Checker</h1>
+                <p style="font-size:13px;color:{T['muted']};margin:0">
+                    Đối sánh lịch kỳ và GPA – kiểm tra GV đủ 30%, phát hiện lớp GPA dưới 3.4, kiểm tra tỷ lệ phản hồi</p>
+            </div>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+if st.session_state.gpa_done:
     today_str = datetime.now().strftime('%Y%m%d')
-    col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     with col_dl1:
         excel_gpa = logic.export_reports_to_excel(
             st.session_state.gpa_report1,
@@ -259,14 +261,13 @@ if st.session_state.gpa_done:
             st.session_state.gpa_summary,
         )
         st.download_button(
-            label="📥 Tải Result check GPA",
+            label="📥 Result GPA",
             data=excel_gpa,
-            file_name=f"{today_str} Result check GPA.xlsx",
+            file_name=logic.generate_output_filename(),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
     with col_dl2:
-        # Tải riêng bảng tổng hợp GPA
         from io import BytesIO
         output_gpa_only = BytesIO()
         with pd.ExcelWriter(output_gpa_only, engine='openpyxl') as writer:
@@ -274,19 +275,17 @@ if st.session_state.gpa_done:
                 st.session_state.gpa_merged.to_excel(writer, sheet_name='Tổng hợp GPA', index=False)
         output_gpa_only.seek(0)
         st.download_button(
-            label="📥 Tải Tổng hợp GPA",
+            label="📥 Tổng hợp GPA",
             data=output_gpa_only.getvalue(),
-            file_name=f"{today_str} Tổng hợp GPA.xlsx",
+            file_name=f"{today_str}-Tong hop GPA.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
     with col_dl3:
-        if st.button("🔄 Làm lại", use_container_width=True, key="btn_reset_top"):
+        if st.button("🔄", use_container_width=True, key="btn_reset_top", help="Làm lại đối sánh mới"):
             for k in defaults:
                 st.session_state[k] = defaults[k]
             st.rerun()
-
-    divider()
 
 # ============================================================
 #  TABS
@@ -387,11 +386,18 @@ with tabs[0]:
 
         # Bước 1: Gộp lịch kỳ
         progress.progress(0.1, text="Đang gộp file lịch kỳ...")
-        schedule_df = logic.merge_schedule_files(schedule_files)
+        schedule_df, schedule_skipped = logic.merge_schedule_files(schedule_files)
 
         # Bước 2: Gộp GPA
         progress.progress(0.3, text="Đang gộp file GPA...")
-        gpa_df = logic.merge_gpa_files(gpa_files)
+        gpa_df, gpa_skipped = logic.merge_gpa_files(gpa_files)
+
+        # Hiển thị log các sheet bị bỏ qua
+        all_skipped = schedule_skipped + gpa_skipped
+        if all_skipped:
+            with st.expander(f"⚠️ {len(all_skipped)} sheet/file bị bỏ qua — bấm để xem chi tiết"):
+                for msg in all_skipped:
+                    st.markdown(f"- {msg}")
 
         if schedule_df.empty:
             st.error("❌ File lịch kỳ không có dữ liệu.")
