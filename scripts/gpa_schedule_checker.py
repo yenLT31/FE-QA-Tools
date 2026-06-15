@@ -10,15 +10,25 @@ from datetime import datetime
 def merge_gpa_files(uploaded_files):
     """Gộp tất cả sheets từ tất cả file GPA thành 1 DataFrame.
     Chỉ lấy sheet có chứa cột 'GV' và 'GPA'.
+
+    Returns:
+        (DataFrame, list[str]): Dữ liệu đã gộp và danh sách log các sheet bị bỏ qua.
     """
     all_data = []
+    skipped_log = []
 
     for f in uploaded_files:
         try:
             xl = pd.ExcelFile(f)
             for sh in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sh)
+                try:
+                    df = pd.read_excel(xl, sheet_name=sh)
+                except Exception as e:
+                    skipped_log.append(f"⚠️ {f.name} / sheet '{sh}': Không đọc được - {e}")
+                    continue
+
                 if df.empty:
+                    skipped_log.append(f"⏭️ {f.name} / sheet '{sh}': Sheet trống")
                     continue
 
                 # Chuẩn hóa tên cột (strip spaces)
@@ -30,33 +40,48 @@ def merge_gpa_files(uploaded_files):
                 has_gpa = 'GPA' in cols_upper
 
                 if not (has_gv and has_gpa):
+                    skipped_log.append(f"⏭️ {f.name} / sheet '{sh}': Thiếu cột "
+                                       f"{'GV' if not has_gv else ''}"
+                                       f"{' và ' if not has_gv and not has_gpa else ''}"
+                                       f"{'GPA' if not has_gpa else ''}")
                     continue
 
                 df.columns = cols_stripped
                 df['Source_File'] = f.name
                 df['Source_Sheet'] = sh
                 all_data.append(df)
-        except Exception:
+        except Exception as e:
+            skipped_log.append(f"❌ {f.name}: Không mở được file - {e}")
             continue
 
     if not all_data:
-        return pd.DataFrame()
+        return pd.DataFrame(), skipped_log
     result = pd.concat(all_data, ignore_index=True)
-    return result
+    return result, skipped_log
 
 
 def merge_schedule_files(uploaded_files):
     """Gộp tất cả sheets từ tất cả file lịch kỳ thành 1 DataFrame.
     Chỉ lấy sheet có chứa cột 'GroupName' và 'Lecturer'.
+
+    Returns:
+        (DataFrame, list[str]): Dữ liệu đã gộp và danh sách log các sheet bị bỏ qua.
     """
     all_data = []
+    skipped_log = []
 
     for f in uploaded_files:
         try:
             xl = pd.ExcelFile(f)
             for sh in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sh)
+                try:
+                    df = pd.read_excel(xl, sheet_name=sh)
+                except Exception as e:
+                    skipped_log.append(f"⚠️ {f.name} / sheet '{sh}': Không đọc được - {e}")
+                    continue
+
                 if df.empty:
+                    skipped_log.append(f"⏭️ {f.name} / sheet '{sh}': Sheet trống")
                     continue
 
                 cols_stripped = [str(col).strip() for col in df.columns.tolist()]
@@ -65,19 +90,24 @@ def merge_schedule_files(uploaded_files):
                 has_lecturer = 'Lecturer' in cols_stripped
 
                 if not (has_group and has_lecturer):
+                    skipped_log.append(f"⏭️ {f.name} / sheet '{sh}': Thiếu cột "
+                                       f"{'GroupName' if not has_group else ''}"
+                                       f"{' và ' if not has_group and not has_lecturer else ''}"
+                                       f"{'Lecturer' if not has_lecturer else ''}")
                     continue
 
                 df.columns = cols_stripped
                 df['Source_File'] = f.name
                 df['Source_Sheet'] = sh
                 all_data.append(df)
-        except Exception:
+        except Exception as e:
+            skipped_log.append(f"❌ {f.name}: Không mở được file - {e}")
             continue
 
     if not all_data:
-        return pd.DataFrame()
+        return pd.DataFrame(), skipped_log
     result = pd.concat(all_data, ignore_index=True)
-    return result
+    return result, skipped_log
 
 
 # ============================================================
@@ -363,7 +393,17 @@ def generate_summary(gpa_stats, response_stats):
 
 
 # ============================================================
-#  6. EXPORT TO EXCEL
+#  6. GENERATE OUTPUT FILENAME
+# ============================================================
+
+def generate_output_filename():
+    """Tạo tên file output theo cú pháp: yyyymmdd-GPA check.xlsx"""
+    today = datetime.now().strftime('%Y%m%d')
+    return f"{today}-GPA check.xlsx"
+
+
+# ============================================================
+#  7. EXPORT TO EXCEL
 # ============================================================
 
 def export_reports_to_excel(report1, report2, report3, gpa_merged, low_response_df, summary_df):
