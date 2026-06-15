@@ -226,31 +226,29 @@ with st.sidebar:
     </div>""", unsafe_allow_html=True)
 
 # ============================================================
-#  HEADER + DOWNLOAD (cùng hàng)
+#  HEADER
+# ============================================================
+st.markdown(f"""
+<div style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;border-radius:14px;
+                    background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
+                    display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
+        <div>
+            <h1 style="font-size:26px;font-weight:800;color:{T['text']};margin:0;line-height:1.2">
+                GPA Schedule Checker</h1>
+            <p style="font-size:13px;color:{T['muted']};margin:0">
+                Đối sánh lịch kỳ và GPA – kiểm tra GV đủ 30%, phát hiện lớp GPA dưới 3.4, kiểm tra tỷ lệ phản hồi</p>
+        </div>
+    </div>
+</div>""", unsafe_allow_html=True)
+
+# ============================================================
+#  DOWNLOAD BUTTONS (hàng gọn ngay dưới header, căn phải)
 # ============================================================
 if st.session_state.gpa_done:
-    col_header, col_dl1, col_dl2, col_dl3 = st.columns([3, 1.2, 1.2, 0.6])
-else:
-    col_header = st.columns([1])[0]
-
-with col_header:
-    st.markdown(f"""
-    <div style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:14px">
-            <div style="width:44px;height:44px;border-radius:14px;
-                        background:linear-gradient(135deg,{T['accent']},{T['accent_dim']});
-                        display:flex;align-items:center;justify-content:center;font-size:22px">📋</div>
-            <div>
-                <h1 style="font-size:26px;font-weight:800;color:{T['text']};margin:0;line-height:1.2">
-                    GPA Schedule Checker</h1>
-                <p style="font-size:13px;color:{T['muted']};margin:0">
-                    Đối sánh lịch kỳ và GPA – kiểm tra GV đủ 30%, phát hiện lớp GPA dưới 3.4, kiểm tra tỷ lệ phản hồi</p>
-            </div>
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-if st.session_state.gpa_done:
     today_str = datetime.now().strftime('%Y%m%d')
+    _, col_dl1, col_dl2, col_dl3 = st.columns([4, 1.5, 1.5, 0.6])
     with col_dl1:
         excel_gpa = logic.export_reports_to_excel(
             st.session_state.gpa_report1,
