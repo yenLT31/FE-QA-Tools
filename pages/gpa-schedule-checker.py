@@ -3,6 +3,7 @@ import importlib.util
 import pandas as pd
 import os
 from datetime import datetime
+from io import BytesIO
 
 # ============================================================
 #  LOAD LOGIC
@@ -54,16 +55,9 @@ T = DARK if st.session_state.theme == "dark" else LIGHT
 #  SESSION STATE
 # ============================================================
 defaults = {
-    "gpa_report1": None,
-    "gpa_report2": None,
-    "gpa_report3": None,
-    "gpa_lecturer_pct": None,
-    "gpa_merged": None,
-    "gpa_low_response": None,
-    "gpa_summary": None,
-    "gpa_response_stats": None,
+    "gpa_result_excel": None,
+    "gpa_summary_excel": None,
     "gpa_done": False,
-    "gpa_stats": {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -211,7 +205,8 @@ with st.sidebar:
         <div style="font-size:12px;font-weight:700;color:{T['accent']};margin-bottom:4px">
             🔒 Bảo mật dữ liệu</div>
         <div style="font-size:11px;color:{T['muted']};line-height:1.5">
-            Mọi dữ liệu xử lý <strong>100% tại local</strong>.<br>Không gửi lên server.</div>
+            Dữ liệu kết quả <strong>không hiển thị trên giao diện</strong>.<br>
+            File chỉ được dùng trong phiên xử lý để tạo báo cáo tải xuống.</div>
     </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>',
@@ -250,31 +245,17 @@ if st.session_state.gpa_done:
     today_str = datetime.now().strftime('%Y%m%d')
     _, col_dl1, col_dl2, col_dl3 = st.columns([4, 1.5, 1.5, 0.6])
     with col_dl1:
-        excel_gpa = logic.export_reports_to_excel(
-            st.session_state.gpa_report1,
-            st.session_state.gpa_report2,
-            st.session_state.gpa_report3,
-            st.session_state.gpa_merged,
-            st.session_state.gpa_low_response,
-            st.session_state.gpa_summary,
-        )
         st.download_button(
             label="📥 Result GPA",
-            data=excel_gpa,
+            data=st.session_state.gpa_result_excel,
             file_name=logic.generate_output_filename(),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
     with col_dl2:
-        from io import BytesIO
-        output_gpa_only = BytesIO()
-        with pd.ExcelWriter(output_gpa_only, engine='openpyxl') as writer:
-            if st.session_state.gpa_merged is not None and not st.session_state.gpa_merged.empty:
-                st.session_state.gpa_merged.to_excel(writer, sheet_name='Tổng hợp GPA', index=False)
-        output_gpa_only.seek(0)
         st.download_button(
             label="📥 Tổng hợp GPA",
-            data=output_gpa_only.getvalue(),
+            data=st.session_state.gpa_summary_excel,
             file_name=f"{today_str}-Tong hop GPA.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
@@ -288,7 +269,7 @@ if st.session_state.gpa_done:
 # ============================================================
 #  TABS
 # ============================================================
-tabs = st.tabs(["⚙️  Cấu hình", "📊  Kết quả"])
+tabs = st.tabs(["⚙️  Cấu hình", "📥  Tải kết quả"])
 
 # ── TAB 1: CẤU HÌNH ──────────────────────────────────────────
 with tabs[0]:
@@ -390,12 +371,10 @@ with tabs[0]:
         progress.progress(0.3, text="Đang gộp file GPA...")
         gpa_df, gpa_skipped = logic.merge_gpa_files(gpa_files)
 
-        # Hiển thị log các sheet bị bỏ qua
+        # Không hiển thị tên file/sheet hoặc chi tiết dữ liệu trên giao diện.
         all_skipped = schedule_skipped + gpa_skipped
         if all_skipped:
-            with st.expander(f"⚠️ {len(all_skipped)} sheet/file bị bỏ qua — bấm để xem chi tiết"):
-                for msg in all_skipped:
-                    st.markdown(f"- {msg}")
+            st.warning(f"⚠️ Có {len(all_skipped)} sheet/file không phù hợp và đã được bỏ qua.")
 
         if schedule_df.empty:
             st.error("❌ File lịch kỳ không có dữ liệu.")
@@ -451,131 +430,50 @@ with tabs[0]:
 
         summary_df = logic.generate_summary(gpa_stats, response_stats)
 
-        # Lưu session state
-        st.session_state.gpa_report1 = report1
-        st.session_state.gpa_report2 = report2
-        st.session_state.gpa_report3 = report3
-        st.session_state.gpa_lecturer_pct = lecturer_pct
-        st.session_state.gpa_merged = gpa_with_status
-        st.session_state.gpa_low_response = low_response_df
-        st.session_state.gpa_summary = summary_df
-        st.session_state.gpa_response_stats = response_stats
+        # Tạo file tải xuống ngay sau khi xử lý. Không lưu DataFrame kết quả
+        # trong session và không hiển thị dữ liệu trên giao diện.
+        result_excel = logic.export_reports_to_excel(
+            report1,
+            report2,
+            report3,
+            gpa_with_status,
+            low_response_df,
+            summary_df,
+        )
+
+        output_gpa_only = BytesIO()
+        with pd.ExcelWriter(output_gpa_only, engine='openpyxl') as writer:
+            gpa_with_status.to_excel(writer, sheet_name='Tổng hợp GPA', index=False)
+        output_gpa_only.seek(0)
+
+        st.session_state.gpa_result_excel = result_excel
+        st.session_state.gpa_summary_excel = output_gpa_only.getvalue()
         st.session_state.gpa_done = True
-        st.session_state.gpa_stats = gpa_stats
 
         progress.progress(1.0, text="✅ Hoàn tất!")
         st.rerun()
 
-# ── TAB 2: KẾT QUẢ ───────────────────────────────────────────
+# ── TAB 2: TẢI KẾT QUẢ ───────────────────────────────────────
 with tabs[1]:
     if not st.session_state.gpa_done:
         st.markdown(f"""<div style="text-align:center;padding:80px 20px">
-            <div style="font-size:52px;margin-bottom:16px">📭</div>
+            <div style="font-size:52px;margin-bottom:16px">🔒</div>
             <h3 style="font-size:18px;font-weight:700;color:{T['text']};margin-bottom:8px">
-                Chưa có kết quả</h3>
+                Chưa có file kết quả</h3>
             <p style="font-size:13px;color:{T['muted']}">
-                Quay lại tab Cấu hình để upload file và bắt đầu đối sánh</p>
+                Quay lại tab Cấu hình để upload file và bắt đầu xử lý</p>
         </div>""", unsafe_allow_html=True)
     else:
-        stats = st.session_state.gpa_stats
-        report1 = st.session_state.gpa_report1
-        report2 = st.session_state.gpa_report2
-        report3 = st.session_state.gpa_report3
-        lecturer_pct = st.session_state.gpa_lecturer_pct
-        low_response_df = st.session_state.gpa_low_response
-        response_stats = st.session_state.gpa_response_stats
-
-        # ── METRIC CARDS ──
-        st.markdown(f"""
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
-            {card_metric("GPA dưới 3.4", stats.get('gpa_low', 0), T['red'], T['rbg'])}
-            {card_metric("Đủ 30% chưa lấy GPA", stats.get('eligible_no_gpa', 0), T['yellow'], T['ybg'])}
-            {card_metric("Dưới 30% bị lấy GPA", stats.get('not_eligible_has_gpa', 0), T['orange'], T['obg'])}
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px">
-            {card_metric("Lớp phản hồi < 60%", stats.get('low_response', 0), T['red'], T['rbg'])}
-            {card_metric("Tỷ lệ lớp thành công", f"{stats.get('success_rate', 0)}%",
-                         T['green'] if stats.get('success_rate', 0) >= 95 else T['red'],
-                         T['gbg'] if stats.get('success_rate', 0) >= 95 else T['rbg'])}
-            {card_metric("Tổng GV/Lớp (lịch kỳ)", stats.get('total_gv', 0), T['blue'], T['bbg'])}
+        st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+            border-radius:12px;padding:24px;text-align:center;margin-top:24px">
+            <div style="font-size:36px;margin-bottom:10px">✅</div>
+            <div style="color:{T['gtxt']};font-size:16px;font-weight:700">
+                Xử lý hoàn tất</div>
+            <div style="color:{T['muted']};font-size:12px;margin-top:6px">
+                Dữ liệu kết quả không được hiển thị trên giao diện.<br>
+                Sử dụng các nút tải xuống phía trên để nhận file Excel.</div>
         </div>""", unsafe_allow_html=True)
 
-        # ── KẾT LUẬN TỶ LỆ THÀNH CÔNG ──
-        sr = stats.get('success_rate', 0)
-        if sr >= 95:
-            st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                border-radius:10px;padding:14px 18px;margin-bottom:20px">
-                <span style="color:{T['gtxt']};font-size:14px;font-weight:700">
-                    ✅ Tỷ lệ lớp lấy GPA thành công: {sr}% ≥ 95% → ĐẠT</span>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown(f"""<div style="background:{T['rbg']};border:1px solid {T['red']}33;
-                border-radius:10px;padding:14px 18px;margin-bottom:20px">
-                <span style="color:{T['rtxt']};font-size:14px;font-weight:700">
-                    ❌ Tỷ lệ lớp lấy GPA thành công: {sr}% < 95% → KHÔNG ĐẠT</span>
-            </div>""", unsafe_allow_html=True)
-
-        # ── DETAIL TABS ──
-        detail_tabs = st.tabs([
-            f"🔴 GPA dưới 3.4 ({stats.get('gpa_low', 0)})",
-            f"🟡 Đủ 30% chưa lấy GPA ({stats.get('eligible_no_gpa', 0)})",
-            f"🟠 Dưới 30% bị lấy GPA ({stats.get('not_eligible_has_gpa', 0)})",
-            f"🔵 Phản hồi dưới 60% ({stats.get('low_response', 0)})",
-            "📊 Tỷ lệ % GV theo lớp",
-            "📋 Tổng kết",
-        ])
-
-        with detail_tabs[0]:
-            if report1 is not None and not report1.empty:
-                st.dataframe(report1, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào GPA dưới 3.4</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[1]:
-            if report2 is not None and not report2.empty:
-                st.dataframe(report2, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Tất cả GV đủ ĐK đã được lấy GPA</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[2]:
-            if report3 is not None and not report3.empty:
-                st.dataframe(report3, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Không có lớp nào vi phạm</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[3]:
-            if low_response_df is not None and not low_response_df.empty:
-                st.dataframe(low_response_df, use_container_width=True, height=500, hide_index=True)
-            else:
-                st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-                    border-radius:10px;padding:16px;text-align:center">
-                    <span style="color:{T['gtxt']};font-size:13px;font-weight:600">
-                        ✅ Tất cả lớp đều đạt tỷ lệ phản hồi ≥ 60%</span>
-                </div>""", unsafe_allow_html=True)
-
-        with detail_tabs[4]:
-            st.dataframe(lecturer_pct, use_container_width=True, height=500, hide_index=True)
-
-        with detail_tabs[5]:
-            summary_df = st.session_state.gpa_summary
-            if summary_df is not None and not summary_df.empty:
-                st.dataframe(summary_df, use_container_width=True, height=600, hide_index=True)
-            else:
-                st.info("Không có dữ liệu tổng kết.")
-
-        # ── NÚT RESET Ở CUỐI ──
         divider()
         if st.button("🔄  Làm lại đối sánh mới", key="btn_reset_bottom", use_container_width=True):
             for k in defaults:
