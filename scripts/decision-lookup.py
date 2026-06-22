@@ -1,15 +1,27 @@
 import io
 import re
 
-import cv2
 import numpy as np
 import pandas as pd
 import pdfplumber
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 
 OCR_RESOLUTION = 180
 OCR_HEADERS = ["STT", "Mã SV", "Họ và tên", "Ngành học", "Lý do", "Cơ sở"]
 _ocr_engine = None
+
+
+def require_opencv():
+    if cv2 is None:
+        raise RuntimeError(
+            "PDF dạng ảnh cần OpenCV. Hãy cài dependencies bằng: "
+            "pip install -r requirements.txt"
+        )
 
 
 def normalize_mssv(value):
@@ -18,6 +30,7 @@ def normalize_mssv(value):
 
 def get_ocr_engine():
     global _ocr_engine
+    require_opencv()
     if _ocr_engine is None:
         try:
             from rapidocr import RapidOCR
@@ -178,6 +191,7 @@ def recognize_cell(image, x1, y1, x2, y2):
 
 
 def search_mssv_in_scanned_page(page, targets):
+    require_opencv()
     pil_image = page.to_image(resolution=OCR_RESOLUTION).original.convert("RGB")
     image = np.asarray(pil_image)
     x_lines, _ = detect_table_grid(image)
