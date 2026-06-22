@@ -5,3 +5,5 @@ openpyxl
 requests
 plotly
 opencv-python-headless
+rapidocr
+onnxruntime
