@@ -199,7 +199,7 @@ with st.sidebar:
         <div>① Upload file(s) Lịch kỳ</div>
         <div>② Upload file(s) GPA Feedback</div>
         <div>③ Bấm "Bắt đầu đối sánh"</div>
-        <div>④ Tải báo cáo</div>
+        <div>④ Tải báo cáo kết quả</div>
     </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>',
@@ -273,12 +273,9 @@ if st.session_state.gpa_done:
             st.rerun()
 
 # ============================================================
-#  TABS
+#  MAIN WORKFLOW
 # ============================================================
-tabs = st.tabs(["⚙️  Cấu hình", "📥  Tải kết quả"])
-
-# ── TAB 1: CẤU HÌNH ──────────────────────────────────────────
-with tabs[0]:
+with st.container():
     step_badge(1, "Tải lên file", "Upload file Lịch kỳ và các file GPA Feedback")
 
     col_schedule, col_gpa = st.columns(2)
@@ -459,29 +456,20 @@ with tabs[0]:
         progress.progress(1.0, text="✅ Hoàn tất!")
         st.rerun()
 
-# ── TAB 2: TẢI KẾT QUẢ ───────────────────────────────────────
-with tabs[1]:
-    if not st.session_state.gpa_done:
-        st.markdown(f"""<div style="text-align:center;padding:80px 20px">
-            <div style="font-size:52px;margin-bottom:16px">🔒</div>
-            <h3 style="font-size:18px;font-weight:700;color:{T['text']};margin-bottom:8px">
-                Chưa có file kết quả</h3>
-            <p style="font-size:13px;color:{T['muted']}">
-                Quay lại tab Cấu hình để upload file và bắt đầu xử lý</p>
-        </div>""", unsafe_allow_html=True)
-    else:
-        st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
-            border-radius:12px;padding:24px;text-align:center;margin-top:24px">
-            <div style="font-size:36px;margin-bottom:10px">✅</div>
-            <div style="color:{T['gtxt']};font-size:16px;font-weight:700">
-                Xử lý hoàn tất</div>
-            <div style="color:{T['muted']};font-size:12px;margin-top:6px">
-                Dữ liệu kết quả không được hiển thị trên giao diện.<br>
-                Sử dụng các nút tải xuống phía trên để nhận file Excel.</div>
-        </div>""", unsafe_allow_html=True)
+if st.session_state.gpa_done:
+    divider()
+    st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
+        border-radius:12px;padding:24px;text-align:center;margin-top:24px">
+        <div style="font-size:36px;margin-bottom:10px">✅</div>
+        <div style="color:{T['gtxt']};font-size:16px;font-weight:700">
+            Xử lý hoàn tất</div>
+        <div style="color:{T['muted']};font-size:12px;margin-top:6px">
+            Dữ liệu kết quả không được hiển thị trên giao diện.<br>
+            Sử dụng các nút tải xuống phía trên để nhận file Excel.</div>
+    </div>""", unsafe_allow_html=True)
 
-        divider()
-        if st.button("🔄  Làm lại đối sánh mới", key="btn_reset_bottom", use_container_width=True):
-            for k in defaults:
-                st.session_state[k] = defaults[k]
-            st.rerun()
+    divider()
+    if st.button("🔄  Làm lại đối sánh mới", key="btn_reset_bottom", use_container_width=True):
+        for k in defaults:
+            st.session_state[k] = defaults[k]
+        st.rerun()
