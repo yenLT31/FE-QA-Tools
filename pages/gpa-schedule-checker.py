@@ -192,8 +192,8 @@ with st.sidebar:
     <div style="font-size:12px;color:{T['muted']};line-height:2.1">
         <div>① Upload file(s) Lịch kỳ</div>
         <div>② Upload file(s) GPA Feedback</div>
-        <div>③ Bấm "Bắt đầu đối sánh"</div>
-        <div>④ Xem kết quả & tải báo cáo</div>
+        <div>③ Xem kết quả & tải báo cáo</div>
+      
     </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>',
