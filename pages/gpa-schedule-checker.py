@@ -127,16 +127,22 @@ st.markdown(f"""<style>
 #  HELPERS
 # ============================================================
 def step_badge(num, title, desc=""):
-    st.markdown(f"""
-    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">
-        <span style="display:inline-flex;align-items:center;justify-content:center;
-            width:30px;height:30px;border-radius:9px;background:{T['accent']};color:#080D18;
-            font-size:13px;font-weight:800;flex-shrink:0">{num:02d}</span>
-        <div>
-            <div style="font-size:17px;font-weight:700;color:{T['text']}">{title}</div>
-            {'<div style="font-size:12.5px;color:'+T['muted']+';margin-top:3px">'+desc+'</div>' if desc else ''}
-        </div>
-    </div>""", unsafe_allow_html=True)
+    desc_html = (
+        f'<div style="font-size:12.5px;color:{T["muted"]};margin-top:3px">{desc}</div>'
+        if desc else ""
+    )
+    html = (
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px">'
+        f'<span style="display:inline-flex;align-items:center;justify-content:center;'
+        f'width:30px;height:30px;border-radius:9px;background:{T["accent"]};color:#080D18;'
+        f'font-size:13px;font-weight:800;flex-shrink:0">{num:02d}</span>'
+        '<div>'
+        f'<div style="font-size:17px;font-weight:700;color:{T["text"]}">{title}</div>'
+        f'{desc_html}'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def card_metric(label, value, color, bg):
@@ -192,8 +198,8 @@ with st.sidebar:
     <div style="font-size:12px;color:{T['muted']};line-height:2.1">
         <div>① Upload file(s) Lịch kỳ</div>
         <div>② Upload file(s) GPA Feedback</div>
-        <div>③ Xem kết quả & tải báo cáo</div>
-      
+        <div>③ Bấm "Bắt đầu đối sánh"</div>
+        <div>④ Xem kết quả & tải báo cáo</div>
     </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>',
