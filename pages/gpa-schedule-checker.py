@@ -2,6 +2,7 @@ import streamlit as st
 import importlib.util
 import pandas as pd
 import os
+import hashlib
 from datetime import datetime
 from io import BytesIO
 
@@ -57,6 +58,7 @@ T = DARK if st.session_state.theme == "dark" else LIGHT
 defaults = {
     "gpa_result_excel": None,
     "gpa_summary_excel": None,
+    "gpa_processed_signature": None,
     "gpa_done": False,
 }
 for k, v in defaults.items():
@@ -72,6 +74,38 @@ def reset_gpa_session():
     for k, v in defaults.items():
         st.session_state[k] = v
     st.session_state.gpa_upload_key_version += 1
+
+
+def get_upload_key(file_type):
+    return f"{file_type}_upload_{st.session_state.gpa_upload_key_version}"
+
+
+def get_uploaded_file_hash(uploaded_file):
+    return hashlib.sha256(uploaded_file.getvalue()).hexdigest()
+
+
+def get_input_signature(schedule_files, gpa_files):
+    """Nhận diện bộ file upload hiện tại để biết kết quả đã cũ hay chưa."""
+    schedule_hashes = sorted(get_uploaded_file_hash(f) for f in (schedule_files or []))
+    gpa_hashes = sorted(get_uploaded_file_hash(f) for f in (gpa_files or []))
+    return tuple(schedule_hashes), tuple(gpa_hashes)
+
+
+def get_current_uploads_from_state():
+    schedule_files = st.session_state.get(get_upload_key("schedule"), []) or []
+    gpa_files = st.session_state.get(get_upload_key("gpa"), []) or []
+    return schedule_files, gpa_files
+
+
+def is_result_stale():
+    if not st.session_state.gpa_done or not st.session_state.gpa_processed_signature:
+        return False
+
+    schedule_files, gpa_files = get_current_uploads_from_state()
+    if not schedule_files and not gpa_files:
+        return False
+
+    return get_input_signature(schedule_files, gpa_files) != st.session_state.gpa_processed_signature
 
 # ============================================================
 #  CSS
@@ -257,7 +291,9 @@ st.markdown(f"""
 # ============================================================
 #  DOWNLOAD BUTTONS (hàng gọn ngay dưới header, căn phải)
 # ============================================================
-if st.session_state.gpa_done:
+result_stale = is_result_stale()
+
+if st.session_state.gpa_done and not result_stale:
     today_str = datetime.now().strftime('%Y%m%d')
     _, col_dl1, col_dl2, col_dl3 = st.columns([4, 1.5, 1.5, 0.6])
     with col_dl1:
@@ -280,6 +316,14 @@ if st.session_state.gpa_done:
         if st.button("🔄", use_container_width=True, key="btn_reset_top", help="Làm lại đối sánh mới"):
             reset_gpa_session()
             st.rerun()
+elif result_stale:
+    st.markdown(f"""<div style="background:{T['ybg']};border:1px solid {T['yellow']}55;
+        border-radius:12px;padding:14px 16px;margin:12px 0 18px">
+        <span style="font-size:13px;color:{T['ytxt']}">
+            ⚠️ Bộ file upload đã thay đổi sau lần đối sánh gần nhất.
+            Kết quả cũ đã được ẩn để tránh tải nhầm. Vui lòng bấm
+            <strong>Bắt đầu đối sánh</strong> để tạo kết quả mới.</span>
+    </div>""", unsafe_allow_html=True)
 
 # ============================================================
 #  MAIN WORKFLOW
@@ -296,7 +340,7 @@ with st.container():
             "Upload Lịch kỳ (có cột: GroupName, SubjectCode, Lecturer...)",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key=f"schedule_upload_{st.session_state.gpa_upload_key_version}",
+            key=get_upload_key("schedule"),
             label_visibility="collapsed",
         )
     with col_gpa:
@@ -307,9 +351,18 @@ with st.container():
             "Upload GPA (có cột: GV, Lớp, Môn, GPA, Comments...)",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key=f"gpa_upload_{st.session_state.gpa_upload_key_version}",
+            key=get_upload_key("gpa"),
             label_visibility="collapsed",
         )
+
+    result_stale = is_result_stale()
+    if result_stale:
+        st.markdown(f"""<div style="background:{T['ybg']};border:1px solid {T['yellow']}55;
+            border-radius:10px;padding:12px 16px;margin-top:12px">
+            <span style="font-size:13px;color:{T['ytxt']}">
+                ⚠️ Bạn đã thay đổi file upload sau khi xử lý. Kết quả tải xuống hiện tại
+                không còn khớp với dữ liệu mới. Hãy chạy lại đối sánh.</span>
+        </div>""", unsafe_allow_html=True)
 
     # Xác nhận dữ liệu
     if schedule_files or gpa_files:
@@ -371,7 +424,8 @@ with st.container():
                 ⚠️ Cần upload: file Lịch kỳ và file(s) GPA Feedback</span>
         </div>""", unsafe_allow_html=True)
 
-    if st.button("📋  Bắt đầu đối sánh", use_container_width=True,
+    run_label = "🔁  Chạy lại đối sánh" if result_stale else "📋  Bắt đầu đối sánh"
+    if st.button(run_label, use_container_width=True,
                  disabled=not can_run, key="btn_run"):
         progress = st.progress(0, text="Đang chuẩn bị...")
 
@@ -460,12 +514,13 @@ with st.container():
 
         st.session_state.gpa_result_excel = result_excel
         st.session_state.gpa_summary_excel = output_gpa_only.getvalue()
+        st.session_state.gpa_processed_signature = get_input_signature(schedule_files, gpa_files)
         st.session_state.gpa_done = True
 
         progress.progress(1.0, text="✅ Hoàn tất!")
         st.rerun()
 
-if st.session_state.gpa_done:
+if st.session_state.gpa_done and not result_stale:
     divider()
     st.markdown(f"""<div style="background:{T['gbg']};border:1px solid {T['green']}33;
         border-radius:12px;padding:24px;text-align:center;margin-top:24px">
