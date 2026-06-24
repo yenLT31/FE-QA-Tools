@@ -320,9 +320,7 @@ st.markdown(f"""
     <div style="font-size:14px;font-weight:700;color:{T['text']};margin-bottom:6px">
         💡 Thông tin bảo mật</div>
     <p style="color:{T['muted']};font-size:12px;line-height:1.7;margin:0">
-        Toàn bộ dữ liệu được xử lý tại trình duyệt (Local). Chúng mình không lưu trữ
-        bất kỳ thông tin sinh viên nào trên server để đảm bảo an toàn dữ liệu tuyệt đối
-        theo quy định của FPT Education.</p>
+        Dữ liệu chỉ được dùng để xử lý trong phiên tra cứu hiện tại. Hệ thống không chủ động lưu file PDF, danh sách MSSV hoặc kết quả tra cứu sau khi người dùng hoàn tất thao tác tải về.</p>
 </div>
 <div style="text-align:center;margin-top:14px">
     <span style="color:{T['muted']};font-size:11px">
