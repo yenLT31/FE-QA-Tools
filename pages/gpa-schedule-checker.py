@@ -356,13 +356,6 @@ with st.container():
         )
 
     result_stale = is_result_stale()
-    if result_stale:
-        st.markdown(f"""<div style="background:{T['ybg']};border:1px solid {T['yellow']}55;
-            border-radius:10px;padding:12px 16px;margin-top:12px">
-            <span style="font-size:13px;color:{T['ytxt']}">
-                ⚠️ Bạn đã thay đổi file upload sau khi xử lý. Kết quả tải xuống hiện tại
-                không còn khớp với dữ liệu mới. Hãy chạy lại đối sánh.</span>
-        </div>""", unsafe_allow_html=True)
 
     # Xác nhận dữ liệu
     if schedule_files or gpa_files:
