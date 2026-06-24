@@ -320,7 +320,7 @@ st.markdown(f"""
     <div style="font-size:14px;font-weight:700;color:{T['text']};margin-bottom:6px">
         💡 Thông tin bảo mật</div>
     <p style="color:{T['muted']};font-size:12px;line-height:1.7;margin:0">
-        Dữ liệu chỉ được dùng để xử lý trong phiên tra cứu hiện tại. Hệ thống không chủ động lưu file PDF, danh sách MSSV hoặc kết quả tra cứu sau khi người dùng hoàn tất thao tác tải về.</p>
+        Dữ liệu được xử lý tạm thời trong phiên làm việc của ứng dụng. Công cụ không chủ động lưu file PDF, MSSV hoặc kết quả tra cứu vào cơ sở dữ liệu; sau khi tải kết quả, người dùng có thể làm mới phiên để xoá dữ liệu tạm.</p>
 </div>
 <div style="text-align:center;margin-top:14px">
     <span style="color:{T['muted']};font-size:11px">
