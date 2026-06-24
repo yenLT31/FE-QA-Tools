@@ -63,6 +63,16 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+if "gpa_upload_key_version" not in st.session_state:
+    st.session_state.gpa_upload_key_version = 0
+
+
+def reset_gpa_session():
+    """Xóa kết quả và làm mới file uploader để tránh giữ file cũ sau reset."""
+    for k, v in defaults.items():
+        st.session_state[k] = v
+    st.session_state.gpa_upload_key_version += 1
+
 # ============================================================
 #  CSS
 # ============================================================
@@ -268,8 +278,7 @@ if st.session_state.gpa_done:
         )
     with col_dl3:
         if st.button("🔄", use_container_width=True, key="btn_reset_top", help="Làm lại đối sánh mới"):
-            for k in defaults:
-                st.session_state[k] = defaults[k]
+            reset_gpa_session()
             st.rerun()
 
 # ============================================================
@@ -287,7 +296,7 @@ with st.container():
             "Upload Lịch kỳ (có cột: GroupName, SubjectCode, Lecturer...)",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key="schedule_upload",
+            key=f"schedule_upload_{st.session_state.gpa_upload_key_version}",
             label_visibility="collapsed",
         )
     with col_gpa:
@@ -298,7 +307,7 @@ with st.container():
             "Upload GPA (có cột: GV, Lớp, Môn, GPA, Comments...)",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            key="gpa_upload",
+            key=f"gpa_upload_{st.session_state.gpa_upload_key_version}",
             label_visibility="collapsed",
         )
 
@@ -470,6 +479,5 @@ if st.session_state.gpa_done:
 
     divider()
     if st.button("🔄  Làm lại đối sánh mới", key="btn_reset_bottom", use_container_width=True):
-        for k in defaults:
-            st.session_state[k] = defaults[k]
+        reset_gpa_session()
         st.rerun()
