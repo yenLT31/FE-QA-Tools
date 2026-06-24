@@ -255,7 +255,7 @@ with st.sidebar:
         <div style="font-size:12px;font-weight:700;color:{T['accent']};margin-bottom:4px">
             🔒 Bảo mật dữ liệu</div>
         <div style="font-size:11px;color:{T['muted']};line-height:1.5">
-            Dữ liệu được xử lý tạm thời trong phiên làm việc của ứng dụng.</div>Công cụ không chủ động lưu file PDF, MSSV hoặc kết quả tra cứu vào cơ sở dữ liệu; sau khi tải kết quả, người dùng có thể làm mới phiên để xoá dữ liệu tạm.
+            Dữ liệu được xử lý tạm thời trong phiên làm việc của ứng dụng. Công cụ không chủ động lưu file PDF, MSSV hoặc kết quả tra cứu vào cơ sở dữ liệu; sau khi tải kết quả, người dùng có thể làm mới phiên để xoá dữ liệu tạm.
     </div>""", unsafe_allow_html=True)
 
     st.markdown(f'<div style="height:1px;background:{T["border"]};margin:18px 0"></div>',
