@@ -1,5 +1,6 @@
 import io
 import re
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,7 @@ except ImportError:
     cv2 = None
 
 
-OCR_RESOLUTION = 180
+OCR_RESOLUTION = 300
 OCR_HEADERS = ["STT", "Mã SV", "Họ và tên", "Ngành học", "Lý do", "Cơ sở"]
 _ocr_engine = None
 
@@ -168,6 +169,30 @@ def recognize_cell(image, x1, y1, x2, y2):
     return result.txts[0].strip() if result.txts else ""
 
 
+def recognize_cell_robust(image, x1, y1, x2, y2):
+    """OCR ô Mã SV nhiều lần với mức phóng to khác nhau, chọn kết quả
+    xuất hiện nhiều nhất để giảm nhầm lẫn ngẫu nhiên (ví dụ 7/8)."""
+    results = []
+    for fx in (3, 4):
+        margin = 3
+        cell = image[y1 + margin:y2 - margin, x1 + margin:x2 - margin]
+        if cell.size == 0:
+            continue
+        cell = cv2.copyMakeBorder(
+            cell, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=(255, 255, 255)
+        )
+        cell = cv2.resize(
+            cell, None, fx=fx, fy=fx, interpolation=cv2.INTER_CUBIC
+        )
+        out = get_ocr_engine()(cell, use_det=False, use_cls=False, use_rec=True)
+        if out.txts:
+            results.append(out.txts[0].strip())
+
+    if not results:
+        return ""
+    return Counter(results).most_common(1)[0][0]
+
+
 def search_mssv_in_scanned_page(page, targets):
     require_opencv()
     pil_image = page.to_image(resolution=OCR_RESOLUTION).original.convert("RGB")
@@ -181,13 +206,14 @@ def search_mssv_in_scanned_page(page, targets):
     hits = []
     row_bounds = detect_mssv_row_bounds(image, x_lines[1], x_lines[2])
     for y1, y2 in row_bounds:
-        recognized_mssv = recognize_cell(
+        recognized_mssv = recognize_cell_robust(
             image, x_lines[1], y1, x_lines[2], y2
         )
         matched_mssv = find_matching_target(recognized_mssv, targets)
         if matched_mssv is None:
             continue
 
+        ocr_raw = normalize_mssv(recognized_mssv)
         row_dict = {}
         for index, (x1, x2) in enumerate(zip(x_lines, x_lines[1:])):
             header = (
@@ -195,15 +221,15 @@ def search_mssv_in_scanned_page(page, targets):
                 if index < len(OCR_HEADERS)
                 else f"Col_{index}"
             )
-            value = (
-                matched_mssv
-                if index == 1
-                else recognize_cell(image, x1, y1, x2, y2)
-            )
-            row_dict[header] = value
+            if index == 1:
+                # Giữ nguyên chuỗi OCR thật, KHÔNG ghi đè bằng MSSV mục tiêu.
+                row_dict[header] = ocr_raw
+            else:
+                row_dict[header] = recognize_cell(image, x1, y1, x2, y2)
 
         hits.append({
             "mssv": matched_mssv,
+            "ocr_raw": ocr_raw,
             "row_dict": row_dict,
         })
     return hits
@@ -269,6 +295,7 @@ def search_mssv_in_pdfs(mssv_list, pdf_data_list):
                                     results[ms]["hits"].append({
                                         "file": fname,
                                         "page": page_num,
+                                        "ocr_raw": "",
                                         "row_dict": row_dict,
                                     })
 
@@ -279,6 +306,7 @@ def search_mssv_in_pdfs(mssv_list, pdf_data_list):
                             results[ms]["hits"].append({
                                 "file": fname,
                                 "page": page_num,
+                                "ocr_raw": hit.get("ocr_raw", ""),
                                 "row_dict": hit["row_dict"],
                             })
         except Exception as exc:
@@ -305,8 +333,15 @@ def build_export_data(mssv_list, results):
                 "Danh sách QĐ": ", ".join(files),
             })
             for hit in info["hits"]:
+                ocr_raw = hit.get("ocr_raw", "")
                 row = {
                     "MSSV": ms,
+                    "Mã SV (OCR)": ocr_raw,
+                    "Cảnh báo": (
+                        "⚠ OCR khác MSSV"
+                        if ocr_raw and ocr_raw != normalize_mssv(ms)
+                        else ""
+                    ),
                     "Tên QĐ": hit["file"],
                     "Trang": hit["page"],
                 }
@@ -321,6 +356,8 @@ def build_export_data(mssv_list, results):
             })
             detail_rows.append({
                 "MSSV": ms,
+                "Mã SV (OCR)": "",
+                "Cảnh báo": "",
                 "Tên QĐ": "Không tìm thấy",
                 "Trang": "",
             })
