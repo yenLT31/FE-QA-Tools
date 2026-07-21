@@ -124,25 +124,13 @@ def detect_mssv_row_bounds(image, x1, x2):
     ]
 
 
-def edit_distance(left, right):
-    previous = list(range(len(right) + 1))
-    for left_index, left_char in enumerate(left, 1):
-        current = [left_index]
-        for right_index, right_char in enumerate(right, 1):
-            current.append(min(
-                current[-1] + 1,
-                previous[right_index] + 1,
-                previous[right_index - 1] + (left_char != right_char),
-            ))
-        previous = current
-    return previous[-1]
-
-
 def find_matching_target(recognized, targets):
     normalized = normalize_mssv(recognized)
     if normalized in targets:
         return targets[normalized]
 
+    # Chỉ sửa các lỗi OCR đã biết ở KÝ TỰ CHỮ (không đụng tới phần số),
+    # ví dụ "1I"/"II" bị đọc nhầm từ "H".
     variants = {normalized}
     if normalized.startswith(("1I", "II")):
         variants.add("H" + normalized[2:])
@@ -153,24 +141,14 @@ def find_matching_target(recognized, targets):
         and normalized[2].isalpha()
     ):
         variants.add("H" + normalized[2:])
+
     for variant in variants:
         if variant in targets:
             return targets[variant]
 
-    # OCR đôi khi chèn/nhầm đúng một ký tự, ví dụ HA thành HIA.
-    candidates = [
-        (min(edit_distance(variant, target) for variant in variants), target)
-        for target in targets
-        if min(abs(len(variant) - len(target)) for variant in variants) <= 1
-    ]
-    if not candidates:
-        return None
-    candidates.sort()
-    best_distance, best_target = candidates[0]
-    if best_distance <= 1 and (
-        len(candidates) == 1 or candidates[1][0] > best_distance
-    ):
-        return targets[best_target]
+    # KHÔNG dùng fuzzy edit-distance: HS163275 và HS163285 chỉ khác 1 ký tự
+    # nhưng là hai MSSV khác nhau, không phải lỗi OCR. Chỉ chấp nhận khớp
+    # chính xác để tránh gán nhầm sinh viên khác.
     return None
 
 
