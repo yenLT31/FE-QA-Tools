@@ -44,6 +44,57 @@ def get_ocr_engine():
     return _ocr_engine
 
 
+# ------------------------- Tiền xử lý ảnh scan -------------------------
+
+def deskew_image(gray):
+    """Ước lượng góc nghiêng và xoay trang cho thẳng."""
+    binary = cv2.threshold(
+        gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )[1]
+    coords = np.column_stack(np.where(binary > 0))
+    if coords.shape[0] < 50:
+        return gray
+
+    angle = cv2.minAreaRect(coords)[-1]
+    if angle < -45:
+        angle = 90 + angle
+    # Chỉ chỉnh khi nghiêng đáng kể, tránh xoay thừa gây méo chữ.
+    if abs(angle) < 0.5 or abs(angle) > 15:
+        return gray
+
+    height, width = gray.shape
+    matrix = cv2.getRotationMatrix2D((width / 2, height / 2), angle, 1.0)
+    return cv2.warpAffine(
+        gray, matrix, (width, height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+
+def preprocess_scanned_image(image):
+    """Làm sạch ảnh scan trước khi dò lưới và OCR:
+    khử nhiễu, tăng tương phản cục bộ, khử nghiêng.
+    Trả về ảnh RGB để tương thích với các hàm dò lưới hiện có.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+    # 1) Khử nhiễu nhẹ (giữ nét chữ). Nếu chậm, đổi sang cv2.medianBlur(gray, 3)
+    gray = cv2.fastNlMeansDenoising(
+        gray, None, h=10, templateWindowSize=7, searchWindowSize=21
+    )
+
+    # 2) Tăng tương phản cục bộ (CLAHE) giúp chữ số mờ rõ hơn.
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray = clahe.apply(gray)
+
+    # 3) Khử nghiêng.
+    gray = deskew_image(gray)
+
+    return cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+
+# ------------------------- Dò lưới bảng -------------------------
+
 def group_line_positions(indices):
     groups = []
     for value in indices:
@@ -125,12 +176,14 @@ def detect_mssv_row_bounds(image, x1, x2):
     ]
 
 
+# ------------------------- Khớp MSSV -------------------------
+
 def find_matching_target(recognized, targets):
     normalized = normalize_mssv(recognized)
     if normalized in targets:
         return targets[normalized]
 
-    # Chỉ sửa các lỗi OCR đã biết ở KÝ TỰ CHỮ (không đụng tới phần số),
+    # Chỉ sửa lỗi OCR đã biết ở KÝ TỰ CHỮ (không đụng phần số),
     # ví dụ "1I"/"II" bị đọc nhầm từ "H".
     variants = {normalized}
     if normalized.startswith(("1I", "II")):
@@ -148,10 +201,11 @@ def find_matching_target(recognized, targets):
             return targets[variant]
 
     # KHÔNG dùng fuzzy edit-distance: HS163275 và HS163285 chỉ khác 1 ký tự
-    # nhưng là hai MSSV khác nhau, không phải lỗi OCR. Chỉ chấp nhận khớp
-    # chính xác để tránh gán nhầm sinh viên khác.
+    # nhưng là hai MSSV khác nhau. Chỉ chấp nhận khớp chính xác.
     return None
 
+
+# ------------------------- OCR ô -------------------------
 
 def recognize_cell(image, x1, y1, x2, y2):
     margin = 3
@@ -197,6 +251,10 @@ def search_mssv_in_scanned_page(page, targets):
     require_opencv()
     pil_image = page.to_image(resolution=OCR_RESOLUTION).original.convert("RGB")
     image = np.asarray(pil_image)
+
+    # Tiền xử lý ảnh scan trước khi dò lưới và OCR.
+    image = preprocess_scanned_image(image)
+
     x_lines, _ = detect_table_grid(image)
 
     # Mẫu quyết định có cột STT đứng ngay trước cột Mã SV.
@@ -235,6 +293,8 @@ def search_mssv_in_scanned_page(page, targets):
     return hits
 
 
+# ------------------------- Đọc file danh sách -------------------------
+
 def detect_mssv_col(columns):
     keywords = [
         "mssv", "ma_sv", "masv", "mã sv", "mã số sinh viên",
@@ -247,6 +307,8 @@ def detect_mssv_col(columns):
                 return index
     return -1
 
+
+# ------------------------- Tra cứu chính -------------------------
 
 def search_mssv_in_pdfs(mssv_list, pdf_data_list):
     results = {}
@@ -265,6 +327,7 @@ def search_mssv_in_pdfs(mssv_list, pdf_data_list):
             with pdfplumber.open(io.BytesIO(pdf_item["bytes"])) as pdf:
                 for page_num, page in enumerate(pdf.pages, 1):
                     tables = page.extract_tables()
+                    # Nhận dạng trang ảnh: không rút được text -> là scan.
                     has_searchable_text = bool(
                         (page.extract_text() or "").strip()
                     )
@@ -315,6 +378,8 @@ def search_mssv_in_pdfs(mssv_list, pdf_data_list):
     results["_errors"] = errors
     return results
 
+
+# ------------------------- Xuất kết quả -------------------------
 
 def build_export_data(mssv_list, results):
     summary_rows = []
