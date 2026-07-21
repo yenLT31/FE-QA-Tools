@@ -16,6 +16,7 @@ SCRIPT_PATH = os.path.abspath(
 )
 
 
+@st.cache_resource
 def load_logic():
     spec = importlib.util.spec_from_file_location("decision_lookup", SCRIPT_PATH)
     if spec is None or spec.loader is None:
@@ -23,6 +24,19 @@ def load_logic():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def find_name_in_row(row_dict):
+    """Dò cột họ tên trong row_dict (linh hoạt với nhiều kiểu header)."""
+    keywords = ["họ và tên", "họ tên", "ho va ten", "ho ten", "hoten", "name", "tên"]
+    for key, value in row_dict.items():
+        key_lower = str(key).lower().strip()
+        for kw in keywords:
+            if kw in key_lower:
+                text = str(value).strip()
+                if text and text.lower() != "none":
+                    return text
+    return ""
 
 
 def extract_mssv_from_file(uploaded_file, logic):
@@ -52,6 +66,33 @@ def extract_mssv_from_file(uploaded_file, logic):
         for value in dict.fromkeys(str(item).strip() for item in values)
         if value and value.lower() != "nan"
     ]
+
+
+def build_display_table(summary, detail):
+    """Ghép bảng hiển thị: MSSV, Họ và tên, Tìm thấy, Số QĐ, Danh sách QĐ."""
+    # Lấy tên đầu tiên tìm được cho mỗi MSSV từ bảng chi tiết
+    name_by_mssv = {}
+    if detail is not None and not detail.empty:
+        for _, row in detail.iterrows():
+            mssv = str(row.get("MSSV", "")).strip()
+            if not mssv or mssv in name_by_mssv:
+                continue
+            row_dict = {
+                k: row[k]
+                for k in detail.columns
+                if k not in ("MSSV", "Tên QĐ", "Trang")
+            }
+            name = find_name_in_row(row_dict)
+            if name:
+                name_by_mssv[mssv] = name
+
+    display = summary.copy()
+    display.insert(
+        1,
+        "Họ và tên",
+        display["MSSV"].map(lambda m: name_by_mssv.get(str(m).strip(), "")),
+    )
+    return display
 
 
 st.set_page_config(
@@ -95,10 +136,7 @@ LIGHT = {
 T = DARK if st.session_state.theme == "dark" else LIGHT
 
 st.markdown(
-    """
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:
-    wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    """,
+    '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">',
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -162,6 +200,10 @@ if "decision_excel" not in st.session_state:
     st.session_state.decision_excel = None
 if "decision_errors" not in st.session_state:
     st.session_state.decision_errors = []
+if "decision_summary" not in st.session_state:
+    st.session_state.decision_summary = None
+if "decision_detail" not in st.session_state:
+    st.session_state.decision_detail = None
 
 with st.sidebar:
     st.markdown(
@@ -207,7 +249,7 @@ with st.sidebar:
           <div>① Tải Quyết định PDF</div>
           <div>② Nhập hoặc tải danh sách MSSV</div>
           <div>③ Bấm “Chạy tra cứu”</div>
-          <div>④ Tải file kết quả Excel</div>
+          <div>④ Xem kết quả hoặc tải Excel</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -221,8 +263,8 @@ with st.sidebar:
           <div style="font-size:12px;font-weight:700;color:{T["accent"]};
                       margin-bottom:4px">🔒 Bảo mật dữ liệu</div>
           <div style="font-size:11px;color:{T["muted"]};line-height:1.5">
-            Dữ liệu chỉ được dùng trong phiên xử lý và không hiển thị chi tiết
-            sinh viên trên giao diện.
+            Dữ liệu chỉ được dùng trong phiên xử lý và không được lưu trữ
+            trên máy chủ.
           </div>
         </div>
         """,
@@ -253,7 +295,7 @@ st.markdown(
         <h1 style="font-size:28px;font-weight:800;color:{T["text"]};
                    margin:0">Decision Lookup</h1>
         <p style="font-size:13px;color:{T["muted"]};margin:4px 0 0">
-          Tra cứu MSSV trong các Quyết định PDF và tải kết quả Excel
+          Tra cứu MSSV trong các Quyết định PDF và xem kết quả trực tiếp
         </p>
       </div>
     </div>
@@ -314,6 +356,8 @@ with form_column:
     ):
         st.session_state.decision_excel = None
         st.session_state.decision_errors = []
+        st.session_state.decision_summary = None
+        st.session_state.decision_detail = None
         pdf_data = [
             {"name": uploaded.name, "bytes": uploaded.getvalue()}
             for uploaded in pdf_files
@@ -323,6 +367,8 @@ with form_column:
             try:
                 results = logic.search_mssv_in_pdfs(mssv_list, pdf_data)
                 summary, detail = logic.build_export_data(mssv_list, results)
+                st.session_state.decision_summary = summary
+                st.session_state.decision_detail = detail
                 st.session_state.decision_excel = logic.to_excel_bytes(
                     summary,
                     detail,
@@ -367,4 +413,43 @@ with info_column:
         if st.button("Tra cứu mới", use_container_width=True):
             st.session_state.decision_excel = None
             st.session_state.decision_errors = []
+            st.session_state.decision_summary = None
+            st.session_state.decision_detail = None
             st.rerun()
+
+# ---- Hiển thị kết quả trực tiếp ----
+if st.session_state.decision_summary is not None:
+    summary = st.session_state.decision_summary
+    detail = st.session_state.decision_detail
+
+    st.divider()
+    st.markdown("### 3. Kết quả tra cứu")
+
+    total = len(summary)
+    found = int((summary["Tìm thấy"] == "Có").sum()) if total else 0
+    not_found = total - found
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Tổng MSSV", total)
+    m2.metric("Tìm thấy", found)
+    m3.metric("Không tìm thấy", not_found)
+
+    display = build_display_table(summary, detail)
+
+    only_not_found = st.checkbox("Chỉ hiện MSSV không tìm thấy")
+    if only_not_found:
+        display = display[display["Tìm thấy"] == "Không"]
+
+    def _color_found(val):
+        if val == "Có":
+            return f"color: {T['green']}; font-weight: 700"
+        if val == "Không":
+            return f"color: {T['red']}; font-weight: 700"
+        return ""
+
+    try:
+        styled = display.style.map(_color_found, subset=["Tìm thấy"])
+    except AttributeError:
+        styled = display.style.applymap(_color_found, subset=["Tìm thấy"])
+
+    st.dataframe(styled, use_container_width=True, hide_index=True)
